@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@local/zcode-bilingual-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "为 ZCode 桌面版英文界面追加中文字幕（英文在上、中文在下）。",
+  "license": "MIT",
+  "bin": {
+    "zcode-zh": "bin/zcode-zh.mjs"
+  }
+}

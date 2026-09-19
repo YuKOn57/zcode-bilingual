@@ -1,0 +1,35 @@
+{
+  "description": "zcode-bilingual: report the bilingual-subtitle patch state at session start, and keep the resident self-heal sentinel armed.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": [
+              "${ZCODE_PLUGIN_ROOT}/hooks/session-start.mjs"
+            ],
+            "timeoutMs": 3000,
+            "statusMessage": "zcode-bilingual: checking subtitle patch…"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": [
+              "${ZCODE_PLUGIN_ROOT}/hooks/ensure-sentinel.mjs"
+            ],
+            "timeoutMs": 3000
+          }
+        ]
+      }
+    ]
+  }
+}
