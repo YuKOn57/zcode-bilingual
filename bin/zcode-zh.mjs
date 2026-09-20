@@ -428,20 +428,70 @@ if(prev&&cur&&cur.indexOf(prev)>=0){try{el.setAttribute("title",cur.replace(prev
 if(cur){if(cur.indexOf(txt)>=0){el.__zzhT=txt;return;}try{el.setAttribute("title",cur+"\n"+txt);}catch(e){return;}}
 else{try{el.setAttribute("title",txt);}catch(e){return;}}
 el.__zzhT=txt;}
-function applyTo(el,txt){if(!el||el.nodeType!==1||!txt)return;
+/* Drop a tooltip WE set when the element got recycled into a different row.
+   List UIs (the composer's command/skill/agent picker) reuse the same
+   <button>/<li> nodes for different items; without this a row could show the
+   PREVIOUS item's translation -- worse than no tooltip.
+   Only clears when the source text that produced the title is GONE from that
+   element, so a sibling text node (e.g. the name chip) can never knock out the
+   row's description tooltip. */
+function clearTitle(el){try{var prev=el.__zzhT;if(!prev)return;
+var cur=el.getAttribute("title");
+if(cur){if(cur===prev)el.removeAttribute("title");
+else if(cur.indexOf(prev)>=0)el.setAttribute("title",cur.replace(prev,"").replace(/^\n+|\n+$/g,""));}
+el.__zzhT=null;}catch(e){}}
+function clearStale(el){try{if(!el||el.nodeType!==1)return;
+var sv=el.__zzhSrcV;if(sv==null)return;
+if((el.textContent||"").indexOf(sv)<0){clearTitle(el);el.__zzhSrcV=null;}}catch(e){}}
+function clearStaleUp(el){var up=el,d=0;
+while(up&&up.nodeType===1&&d<5){clearStale(up);up=up.parentElement;d++;if(!up)break;
+var u=up.tagName;if(u==="BODY"||u==="HTML")break;}}
+/* The picker renders "<source label> · <description>" as ONE text node and the
+   name as "$name" / "/name". Exact match failed for every one of them. Try the
+   raw text, then the part after the first " · ", then the name without its sigil. */
+function dictVariants(v){var out=[v];
+var i=v.indexOf("·");
+if(i>0&&i<40)out.push(v.slice(i+1));
+if(v.length>1&&/^[$/@!>]/.test(v))out.push(v.slice(1));
+return out;}
+function applyTo(el,txt,src){if(!el||el.nodeType!==1||!txt)return;
 var t=el.tagName;if(t==="SCRIPT"||t==="STYLE"||t==="TEXTAREA"||t==="OPTION")return;
 setTitle(el,txt);
+if(src!=null)el.__zzhSrcV=src;
+/* Widen the hover target to the row, but never to a container much bigger than
+   the source text itself -- otherwise the whole scrolling listbox ends up
+   carrying a row's tooltip (observed in the live picker). Budget is measured
+   against the SOURCE text (label+description), not the translation. */
+var lim=((src!=null?src:txt).length)*1.5+40;
 var up=el,d=0;
 while(up&&d<4){up=up.parentElement;d++;if(!up)break;var u=up.tagName;
 if(u==="BODY"||u==="HTML")break;
 var role=up.getAttribute&&up.getAttribute("role");
-if(u==="LI"||u==="BUTTON"||u==="A"||u==="LABEL"||u==="TR"||role==="button"||role==="menuitem"||role==="option"||role==="tab"||role==="listitem"){setTitle(up,txt);break;}}}
+if(u==="LI"||u==="BUTTON"||u==="A"||u==="LABEL"||u==="TR"||role==="button"||role==="menuitem"||role==="option"||role==="tab"||role==="listitem"){
+if(((up.textContent||"").length)<=lim){setTitle(up,txt);if(src!=null)up.__zzhSrcV=src;}break;}}}
 function handleText(n){try{if(!n||n.nodeType!==3||!n.nodeValue)return;
-var p=n.parentNode;if(p&&(p.tagName==="INPUT"||p.tagName==="TEXTAREA"||p.isContentEditable))return;
+var p=n.parentNode;if(!p||p.tagName==="INPUT"||p.tagName==="TEXTAREA")return;
 if(MET)MET.text++;
-var v=n.nodeValue;
-if(v.indexOf(S)>=0){var i=v.indexOf(S);n.nodeValue=v.slice(0,i);var o=v.slice(i+1);var z2=dict(o);applyTo(n.parentNode,z2||o);return;}
-var z=dict(v,1);if(z)applyTo(n.parentNode,z);}catch(e){}}
+var v=n.nodeValue,ed=!!p.isContentEditable;
+if(v.indexOf(S)>=0){var i=v.indexOf(S);var o=v.slice(i+1);var z2=dict(o);
+/* Never rewrite text inside a contenteditable region: a Lexical/ProseMirror-style
+   editor owns that DOM and mutating it can desync the document model. Tooltips
+   are still attached there -- the composer's slash/skill/agent picker is a
+   decorator node INSIDE the editable root, which is exactly what used to get
+   skipped (isContentEditable is inherited, so the whole editor subtree was). */
+if(!ed)n.nodeValue=v.slice(0,i);applyTo(p,z2||o,o);return;}
+var z=null,vs=dictVariants(v);
+for(var vi=0;vi<vs.length&&!z;vi++)z=dict(vs[vi],1);
+if(z)applyTo(p,z,v);
+else clearStaleUp(p);}catch(e){}}
+/* Short text inside <code>/<pre> gets a tooltip too -- skill / subagent NAMES are
+   frequently rendered as a code chip, and the deep walk deliberately stops at
+   PRE/CODE. Bounded to <=80 chars of textContent so real code blocks (the reason
+   for the skip) are never walked or touched. */
+function handleCode(el){try{var t=el.textContent||"";if(!t||t.length>80)return;
+var k=el.childNodes;for(var i=0;i<k.length;i++){var n=k[i];
+if(n.nodeType===3){handleText(n);}
+else if(n.nodeType===1&&(n.textContent||"").length<=80){var k2=n.childNodes;for(var j=0;j<k2.length;j++)if(k2[j].nodeType===3)handleText(k2[j]);}}}catch(e){}}
 function cleanAttrs(el){try{if(!el||!el.attributes)return;
 for(var j=0;j<el.attributes.length;j++){var a=el.attributes[j];if(!a.value||a.value.indexOf(S)<0)continue;
 if(MET)MET.attr++;
@@ -453,7 +503,8 @@ cleanAttrs(el);
 var k=el.childNodes;for(var i=k.length-1;i>=0;i--){var n=k[i];
 if(n.nodeType===3)handleText(n);
 else if(n.nodeType===1){var g2=n.tagName;
-if(g2!=="SCRIPT"&&g2!=="STYLE"&&g2!=="PRE"&&g2!=="CODE"&&g2!=="TEXTAREA"&&!n.isContentEditable)walk(n,d+1);}}}
+if(g2==="PRE"||g2==="CODE"){if(MET)MET.node++;handleCode(n);}
+else if(g2!=="SCRIPT"&&g2!=="STYLE"&&g2!=="TEXTAREA")walk(n,d+1);}}}
 var obs=new MutationObserver(function(ms){var _t0=MET?Date.now():0;
 try{if(MET){MET.cb++;MET.mut+=ms.length;}
 for(var i=0;i<ms.length;i++){var m=ms[i];
@@ -989,8 +1040,47 @@ function cmdStatus(args) {
   return marker === MARKER ? 0 : 1;
 }
 
+/** Is the target Electron app currently running? */
+function zcodeRunning() {
+  if (process.env.ZCB_ASSUME_CLOSED === '1') return false;
+  const exe = process.env.ZCB_EXE_NAME || (process.platform === 'win32' ? 'ZCode.exe' : 'ZCode');
+  try {
+    if (process.platform === 'win32') {
+      const out = execFileSync('tasklist', ['/FI', `IMAGENAME eq ${exe}`, '/FO', 'CSV', '/NH'], {
+        encoding: 'utf8', timeout: 15000, windowsHide: true,
+      });
+      return out.toLowerCase().includes(`"${exe.toLowerCase()}"`);
+    }
+    execFileSync('pgrep', ['-x', exe], { encoding: 'utf8', timeout: 15000, windowsHide: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function cmdApply(args) {
   const asarPath = findAsar(args.asar);
+
+  // ---------------------------------------------------------------------------
+  // Pre-flight: NEVER touch a live install. The older-patch path restores the
+  // pristine backup BEFORE re-patching, so if the re-patch then hits a locked
+  // file the archive is left UNPATCHED -- the "补丁被打没" incident, which is
+  // exactly what a stray `apply --force` while ZCode is open produces. Refuse
+  // up front instead. Portable/temp targets (no ZCode.exe sibling) are exempt,
+  // which is what the automated tests use.
+  // ---------------------------------------------------------------------------
+  const realInstall = fs.existsSync(
+    path.join(appRootFromAsar(asarPath), process.platform === 'win32' ? 'ZCode.exe' : 'ZCode'),
+  );
+  if (realInstall && zcodeRunning()) {
+    console.error(
+      'REFUSING TO PATCH: ZCode is running and this is a real install.\n' +
+        'app.asar is locked while the app runs. Fully quit ZCode (including the\n' +
+        'tray/menu-bar icon) and run apply again. Nothing was changed.',
+    );
+    return 6;
+  }
+
   const fuses = checkFuses(asarPath);
   if (fuses.checked && fuses.integrity === 'enabled') {
     console.error(
@@ -1233,6 +1323,7 @@ export {
   catalogExprFor,
   findCatalogs,
   patchBundle,
+  rendererHelper,
   normalizeKey,
   buildDictionary,
 };

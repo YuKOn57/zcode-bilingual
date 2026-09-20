@@ -1,0 +1,22 @@
+{
+  "name": "zcode-bilingual",
+  "version": "0.4.5",
+  "description": "Hover ZCode UI text to see a translation tooltip: English UI shows Chinese, Chinese UI shows English. The original text and the layout are never modified. Catalog-driven surfaces are covered automatically; plugin/skill/subagent/MCP metadata is covered by an extensible dictionary.json. Self-healing: a ZCode update that wipes the patch is detected and repaired automatically.",
+  "description_i18n": {
+    "en": "Hover ZCode UI text to see a translation tooltip: English UI shows Chinese, Chinese UI shows English. The original text and the layout are never modified. Catalog-driven surfaces are covered automatically; plugin/skill/subagent/MCP metadata is covered by an extensible dictionary.json.",
+    "zh-CN": "鼠标悬停在 ZCode 界面文案上时浮出另一种语言的翻译气泡：英文界面显示中文，中文界面显示英文。原有文字与排版完全不动。客户端文案目录自动覆盖；插件/技能/子智能体/MCP 的动态文字由可扩展的 dictionary.json 覆盖。"
+  },
+  "author": {
+    "name": "YuKOn"
+  },
+  "keywords": [
+    "localization",
+    "chinese",
+    "i18n",
+    "bilingual",
+    "subtitle"
+  ],
+  "commands": "commands",
+  "skills": "skills",
+  "hooks": "hooks"
+}

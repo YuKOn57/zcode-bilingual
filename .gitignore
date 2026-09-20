@@ -1,0 +1,9 @@
+# Dev-only clutter (never ship / never commit)
+_missing_report.txt
+*.bak
+*.bak*
+dictionary.json.bak-*
+__pycache__/
+*.log
+*.tmp
+node_modules/

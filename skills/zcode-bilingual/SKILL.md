@@ -45,12 +45,21 @@ function w(e){let t=g[e]??g[`zh-CN`];return{formatMessage({id:e},n){ ... }}}
 `description_i18n` 会一起编译进渲染层；辅助脚本做精确匹配（忽略首尾/连续空白），命中即挂译文，
 **不修改原文**。
 
-> ⚠️ **运行时加载的插件内容（插件市场「技能」列表描述等）也是悬停，不是可见替换。**
-> 这些描述来自插件 zip / 市场数据，**不在客户端文案目录、也不走 `formatMessage`**，但渲染层辅助脚本
+> ⚠️ **运行时加载的插件内容（插件市场「技能」列表描述、技能/子智能体**名字**等）也是悬停，不是可见替换。**
+> 这些内容来自插件 zip / 市场数据，**不在客户端文案目录、也不走 `formatMessage`**，但渲染层辅助脚本
 > 同样能命中它们：对**命中用户词典 `D` / 覆盖 `OVT` / 文件名提示**的文本节点，仍然**只把译文挂到 `title`
 > （悬停），可见英文一个字不变**——与走 `formatMessage` 的客户端文案完全一致。用户确认的核心设计是
-> 「原英文显示一律保留，中文只在鼠标悬停时出现」。守卫：`INPUT/TEXTAREA/CODE/PRE/SCRIPT/STYLE/contentEditable`
-> 内的文本节点不处理。验证：模拟 DOM 跑真实 helper，断言 `nodeValue` 仍为英文、`title` 含中文。
+> 「原英文显示一律保留，中文只在鼠标悬停时出现」。守卫：`INPUT`/`TEXTAREA`/`SCRIPT`/`STYLE` 内的文本节点不处理；
+> `CODE`/`PRE` 内的文本**仅在整段 ≤ 80 字符时**挂悬停（名字常渲染成 `<code>` chip；≥80 字符的真实代码块不碰）；
+> **contenteditable 子树现在也会处理**（早先整块跳过 → **会话窗口里 `/技能`、`/智能体` 的弹出面板没气泡**：
+> 该面板是编辑器内的装饰节点，`isContentEditable` 是**继承**属性，一跳过就把整个编辑器连同面板都跳过了）。
+> ⚠️ 但 contenteditable 内的文本**只挂 `title`、绝不改写**（Lexical/ProseMirror 拥有那套 DOM，改写会导致文档模型失步）。
+> **弹出面板的文本带前缀**：`"<来源标签> · <描述>"` 是**一个文本节点**、名字是 `"$name"`/`"/name"`——
+> 整串精确匹配必然落空。现在按「原文 → 去掉首个 `· ` 之后的部分 → 去掉 `$ / @ !` 首符」三个变体依次查词典。
+> **虚拟列表回收**：行 DOM 会复用，旧行译文必须清掉（否则显示**别的行**的翻译）；只在该元素记录的源文本
+> 已从它自己的 textContent 中消失时清除。**祖先上溯到行（button/li/role=option…）时加了体积上限**，
+> 免得整个滚动容器继承某一行的 tooltip。验证：`_helper_picker_test.mjs`（真实面板 DOM 复刻，9 项）。
+> 验证：模拟 DOM 跑真实 helper（`_helper_code_test.mjs` 覆盖 code chip、`_helper_editor_test.mjs` 覆盖编辑器内弹出面板 + 不改写约束）。
 
 **覆盖哪些元数据源**（`scripts/_scan_missing.py` 全都会扫）：
 
@@ -67,6 +76,15 @@ function w(e){let t=g[e]??g[`zh-CN`];return{formatMessage({id:e},n){ ... }}}
 所以「会话窗口的 `/workflow` 没翻译」「子智能体没翻译」看起来像插件坏了，其实是词典缺这两类来源。
 排查手法：`python scripts/_scan_missing.py`，报告里 `<- ['command.desc']` / `<- ['agent.desc']` 就是它。
 `argument-hint` **故意不收录** —— 那是参数语法（`<system-dir> [target-stack]`），翻译会误导用户怎么输入。
+
+⚠️ **第五种形态（2026-09-20 用户报「子智能体和技能中的英文没有悬浮翻译」）：技能/子智能体的**名字**。**
+早先按「标识符不译」的约定跳过了 `skill.name` / `agent.name` / `plugin.name`，但列表里那一栏就是英文名
+（`build-mcpb`、`scan-loader`、`hook-development` …），用户看到的就是"英文没翻译"。**现改为收录**——
+悬停翻译不改变可见文字，给名字加中文气泡只有好处。同时 `CODE`/`PRE` 内的短文本也支持悬停（名字常是
+`<code>` chip，此前整块跳过 → 有词典也不出气泡）。
+**判据：`_scan_missing.py` 报告里出现 `<- ['skill.name']` / `<- ['agent.name']` / `<- ['plugin.name']`。**
+仍**故意不收录**：`plugin.author`（公司/人名：Anthropic / GitHub / HashiCorp …，译中文只是噪音）、
+`plugin-id`（目录名 `.github` / `plugins`）、`argument-hint`，以及本身已含中文的描述。
 
 ⚠️ **同一个坑的第三种形态**：**插件市场列表**只显示 `plugin.json` 的 `name` + `description`，
 而这两项走的是另一条扫描路径（`plugin.json` 而非 `commands/` `agents/`）。
