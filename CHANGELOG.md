@@ -1,5 +1,41 @@
 # 更新日志 / Changelog
 
+## Unreleased — 2026-09-21（失效排查记录 / diagnostics）
+
+> 本次 **没有改动任何代码**，不影响插件版本号。以下是一次用户报障「悬停翻译失效」的
+> 完整排查记录，结论对后续排障有直接参考价值。
+
+**症状**：ZCode 界面悬停不出中文，但 `status` 显示一切正常。
+
+**根因：ZCode 自动版本更新（3.14.0 → 3.14.1）替换了 `app.asar`**
+
+- ZCode 自身的更新器会用缓存重建 `app.asar`，**并且连同修改时间一起还原**。
+  表现出来的现象是「补丁自己消失了」，连 state 里的补丁记录都原样留着。
+- ⛔ **`patched: true` 不可信**。唯一可靠的判据是**在 `app.asar` 原始字节里搜 `__zcodeZhTitle3`**
+  （自己解析 asar header 极易因偏移算错给出假阴性）。
+- 另两个强判据：`patchedSize` 与 `app.asar` 实际大小不符；`app.asar` 的 mtime **早于** state 的
+  `at` —— 时间倒挂是普通文件操作不可能造成的，只能是更新器还原。
+
+**第二重故障：自愈没有兜住**
+
+- 自 `2026-09-19 15:11` 起 `hook.log` 再无任何新行 → hook 从未触发；
+  7 个 sentinel worker PID 全部失效，`self-heal status` 显示 `worker.alive=false`。
+- ⛔ **自愈能否生效的唯一判据是 `hook.log` 有没有新行**。hook 静默时，补丁丢了也没人知道。
+- hook 脚本本身可单独冒烟验证，用于排除「脚本坏了」这一可能：
+  `echo '{"hook_event_name":"SessionStart","source":"startup"}' | node hooks/session-start.mjs`
+
+**修复与验证**
+
+- ZCode 完全退出后重跑 `apply`，补丁已重建在 **3.14.1** 上，**choke-point 模式仍然可用**
+  （目标 chunk 随版本变化：`IntlProvider-DCo4gdAe.js` → `IntlProvider-DW5rmeLm.js`）。
+- 验证结果：`__zcodeZhTitle3` ×2、`__zcodeZhDict` ×6、烤入词典 **651** 条
+  （+7 filename hints、121 zh overrides）；`upToDate=true`、`dictStale=false`、`codeStale=false`。
+
+**仍然未决**
+
+1. ZCode 自动更新会反复抹掉补丁，自愈只能缩短失效窗口。**根治需要关闭 ZCode 自动更新。**
+2. hook 自 09-19 15:11 起静默的原因尚未确证（hook 脚本本身完好）。下次复发优先查这条。
+
 ## v0.4.5 — 2026-09-20
 
 **修复：会话窗口 `/技能`、`/智能体` 弹出面板悬停无翻译（用户报障）**
