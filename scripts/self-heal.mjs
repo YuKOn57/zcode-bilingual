@@ -28,7 +28,9 @@
  *                                                       re-patches the moment an update swaps app.asar
  *   cancel                                              clear the request and stop the worker
  *   watchdog                                            logon self-check (called by the Startup .vbs)
- *   arm-watchdog / unwatch                              install / remove the Startup .vbs
+ *   arm-watchdog / unwatch                              install / remove the Startup .vbs (opt-in;
+ *                                                       schedule no longer auto-arms it — AV
+ *                                                       key-location guards delete it instantly)
  *   status                                              dump request/result/worker/watchdog state
  *
  * Files (under %LOCALAPPDATA%\zcode-bilingual unless ZCB_DATA_DIR overrides)
@@ -242,6 +244,16 @@ function backoffAllows(asar) {
 // logon watchdog (Startup folder .vbs -> `self-heal.mjs watchdog`)
 // ---------------------------------------------------------------------------
 
+// The Startup .vbs is a persistence pattern that AV engines (360's key-location
+// guard, for one) flag on sight: 2026-09-24 every ZCode launch re-dropped it and
+// 360 deleted it ~1s later, so it never actually fired. Opt-in only now —
+// the SessionStart hook is the real auto-trigger source.
+function watchdogEnabled() {
+  if (process.env.ZCB_WATCHDOG === '1') return true;
+  const cfg = readJson(CONFIG_FILE);
+  return !!(cfg && cfg.watchdog === true);
+}
+
 function armWatchdog() {
   if (process.platform !== 'win32') return false;
   try {
@@ -298,7 +310,7 @@ function cmdSchedule(reason, opts = {}) {
     pluginRoot: PLUGIN_ROOT,
     asar: process.env.ZCODE_ASAR || undefined,
   });
-  armWatchdog(); // keep the logon backstop fresh (node/script paths can change)
+  if (watchdogEnabled()) armWatchdog(); // opt-in: see watchdogEnabled()
   const w = workerState();
   if (w.alive) {
     console.log(JSON.stringify({ scheduled: true, mode, worker: 'already-running', pid: w.pid }));

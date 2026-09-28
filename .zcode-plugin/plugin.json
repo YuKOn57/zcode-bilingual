@@ -1,6 +1,6 @@
 {
   "name": "zcode-bilingual",
-  "version": "0.4.5",
+  "version": "0.4.7",
   "description": "Hover ZCode UI text to see a translation tooltip: English UI shows Chinese, Chinese UI shows English. The original text and the layout are never modified. Catalog-driven surfaces are covered automatically; plugin/skill/subagent/MCP metadata is covered by an extensible dictionary.json. Self-healing: a ZCode update that wipes the patch is detected and repaired automatically.",
   "description_i18n": {
     "en": "Hover ZCode UI text to see a translation tooltip: English UI shows Chinese, Chinese UI shows English. The original text and the layout are never modified. Catalog-driven surfaces are covered automatically; plugin/skill/subagent/MCP metadata is covered by an extensible dictionary.json.",

@@ -130,7 +130,9 @@ switch (mode) {
     code = runNode(patcher, ['apply']);
     if (code === 0) {
       // Logon backstop: re-arms self-heal even if the SessionStart hook never fires.
-      runNode(selfHeal, ['arm-watchdog']);
+      // Opt-in only (ZCB_WATCHDOG=1): a Startup .vbs is flagged by AV key-location
+      // guards (360 deletes it within a second), so it is off by default.
+      if (process.env.ZCB_WATCHDOG === '1') runNode(selfHeal, ['arm-watchdog']);
       console.log('');
       console.log('完成。 / Done.');
       launchZCode();

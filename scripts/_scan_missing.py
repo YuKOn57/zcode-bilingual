@@ -1,7 +1,7 @@
 import json, os, re, sys
 
 HOME = r'C:\Users\YuKOn'
-DICT = r'C:\Users\YuKOn\Documents\zcode\zcode-bilingual-plugin\dictionary.json'
+DICT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'dictionary.json')  # script-relative, not machine-specific
 norm = lambda s: re.sub(r'\s+', ' ', str(s)).strip()
 d = json.load(open(DICT, encoding='utf8'))
 covered = {norm(k) for k in d}
@@ -140,10 +140,5 @@ for cfg in [
 
 miss = {k: v for k, v in strings.items() if k not in covered}
 print('total english strings:', len(strings), '| missing:', len(miss))
-out = os.path.join(os.path.dirname(DICT), '_missing_report.txt')
-with open(out, 'w', encoding='utf8') as f:
-    for k in sorted(miss, key=lambda x: (len(x), x)):
-        f.write(f'{json.dumps(k, ensure_ascii=False)}\n    <- {miss[k]}\n')
-print('written', out)
-for k in sorted(miss, key=lambda x: (len(x), x))[:400]:
-    print(json.dumps(k, ensure_ascii=False)[:200], '<-', miss[k])
+for k in sorted(miss, key=lambda x: (len(x), x)):
+    print(json.dumps(k, ensure_ascii=False), '<-', miss[k])

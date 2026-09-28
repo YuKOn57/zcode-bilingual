@@ -4,6 +4,8 @@
 
 - 英文界面 → 悬停显示**中文**；
 - 中文界面（ZCode 默认）→ 界面**保持中文不变**，悬停显示**英文**。
+- 插件 / 命令 / 技能自带的双语描述（`English / 中文`）→ 悬停浮出**中文半段**（v0.4.7——即使中文已完整显示：行内中文是浅灰色，看不清）；
+- 被 CSS 截断的长描述 → 悬停显示**全文**（v0.4.6）。
 
 **原有文字一个字符都不改、排版完全不变**（不换行、不改宽度、不遮挡原有内容）。
 
@@ -243,12 +245,16 @@ ZCode 每次升级都会整体替换 `app.asar`，补丁随之消失；而 asar 
 | 触发源 | 时机 | 依赖 ZCode hook | 会自动重开 ZCode |
 |---|---|---|---|
 | SessionStart hook（改造） | 每次会话开始 | 是 | 是 |
-| 登录看门狗 `zcode-bilingual-watchdog.vbs` | 每次 Windows 登录 | **否**（独立于 ZCode） | 否（只静默打补丁） |
+| 登录看门狗 `zcode-bilingual-watchdog.vbs`（**默认关闭**） | 每次 Windows 登录 | **否**（独立于 ZCode） | 否（只静默打补丁） |
 | `repair.cmd` / `/zcode-bilingual:repair` | 手动 | 否（.cmd） | 是 |
 
-> ⚠️ **登录看门狗在部分机器上会被安全策略拦截**：启动目录里的 `.vbs` / `.cmd` 可能被写入后
-> 数秒内删除（`schtasks` / `Run` 注册表项也可能被拒绝）。这类机器上实际是"**SessionStart hook
-> 单触发源**"——功能不受影响（升级后开会话即自动布防），只是少了登录兜底。判断是否生效看
+> ⚠️ **登录看门狗默认关闭**。启动目录里的 `.vbs` 是标准持久化模式，360/Windows Defender 的
+> **关键位置保护**会在写入后数秒内删除它——实测（2026-09-24）每次 ZCode 启动都重写一次、
+> 每次都被删，它从未真正执行过。功能不受影响：真正的自动触发源是 SessionStart hook，升级后
+> 开会话即自动布防。
+> 想强制开启：`self-heal.mjs arm-watchdog`（手动），或 `ZCB_WATCHDOG=1` /
+> `self-heal-config.json` 里 `"watchdog": true`（让每次 schedule 自动重写）。开启前请确保
+> 已在杀软恢复区里把它们加入白名单，否则只是反复触发告警。判断是否真的装上看
 > `self-heal.mjs status` 的 `watchdogInstalled`（`arm-watchdog` 报 installed 只代表写入成功）。
 
 ### 执行流程

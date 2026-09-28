@@ -1,5 +1,56 @@
 # 更新日志 / Changelog
 
+## v0.4.7 — 2026-09-28（内联双语提取：悬停必出中文 / inline bilingual extraction）
+
+- **用户追加需求**：`/` 面板里**所有英文**——包括右侧已带中文对照的——悬停都要显示中文翻译。
+  行内中文用浅灰色渲染看不清（`/apply  Enable hover-to-translate tooltips in ZCode /
+  启用界面悬停翻译（原文与排版不变）`），不如气泡清晰；且 v0.4.6 的截断兜底只在被裁切时才挂。
+- **实现**：`rendererHelper` 新增 `inlineZh()`——双语描述的中文半段就在文本里（最后一个
+  ` / ` 之后），直接提取为悬停译文，**无需词典、不看布局**（截断、完整可见、未渲染一律生效）。
+  词典命中仍优先（权威译文）。纯英文未收录 + 被裁切时依旧落到 v0.4.6 的 `truncFull()` 看全文。
+- **误报防护**（`_helper_trunc_test.mjs` 13 项全过）：
+  - 分隔符必须是 `空格 + / + 可选空格`，`C:/path`、`https://…` 不命中；
+  - 斜杠右侧必须以 CJK（含全角/CJK 标点）开头，`TCP / IP`、`on / off` 不命中；
+  - 斜杠左侧必须含拉丁字母**且不能以 CJK 结尾**——`设置 / 语言`、`…设置 / 语言, path…`
+    这类纯中文/混合串不命中；
+  - 中文段长度 2–800 字符；
+  - 行回收照常走 `__zzhSrcV` 清除（换行即换 tooltip / 短文本即清空）。
+- **回归**：picker 9 / code 6 / editor 5 全过。
+
+## v0.4.6 — 2026-09-28（截断兜底：双语描述悬停看全文 / truncation fallback for clipped bilingual text）
+
+- **用户报障**：`/` 命令面板里**插件自带双语描述**（`English / 中文` 形式，如
+  `/mimosa-deep-audit` 的 "Reproducible, sealed Mimosa deep security audit. / 运行可复核的 Mi…"）
+  悬停**没有任何气泡**；而行内 CSS `truncate` 把中文尾部截掉了，内容根本看不全。
+- **根因**：这类描述整串（英文+中文）在词典里没有对应键（词典只收纯英文条目，
+  「本身已含中文」的描述本来就故意不收录），辅助脚本词典未命中后什么都不挂。
+- **修复**：`rendererHelper` 新增 `truncFull()` 截断兜底——词典未命中且文本 ≥20 字符时，
+  用真实布局判断元素是否真的被裁切（`scrollWidth/Height` 超出 `clientWidth/Height`），
+  命中则把该元素的**完整 textContent**（剥掉 `<来源标签> · ` 前缀）挂为 `title`，
+  并照常把悬停目标加宽到所在行。纯英文未收录文本被截断时同样受益（悬浮看英文全文）。
+- **护栏**（全部有测试钉死，`_helper_trunc_test.mjs` 10 项）：
+  - 只在**真实发生裁切**时才挂——完整可见的长文本绝不长出冗余气泡；
+  - 宽度/高度为 0（未渲染）的元素忽略；
+  - 祖先回溯仅接受「行形」元素（li/button/a/label/tr/role=option…），大滚动列表容器
+    （普通 div，即使 `overflow-y-auto` 被裁切）永远不会变成一整份列表的 tooltip；
+  - 候选元素 textContent 上限 600 字符；
+  - 虚拟列表行回收：旧行全文 tooltip 照常走 `__zzhSrcV` 清除逻辑（换行换文即清）。
+- **生效方式**：补丁器改动 → `status` 报 `codeStale: true` → 常驻哨兵在 ZCode 完全退出后
+  自动 `apply --force` 重打并重启（无需手动操作）。既有 3 个 helper 测试全部回归通过
+  （picker 9 / code 6 / editor 5）。
+
+## Unreleased — 2026-09-24（登录看门狗默认关闭 / logon watchdog off by default）
+
+- **变更**：`self-heal.mjs` 的 `cmdSchedule()` 不再无条件重写启动目录的
+  `zcode-bilingual-watchdog.vbs`；改为 opt-in（`ZCB_WATCHDOG=1` 或
+  `self-heal-config.json` 里 `"watchdog": true`）。`run.mjs install` 同理。
+  `arm-watchdog` / `unwatch` 手动命令保留。
+- **原因**：360 的「关键位置保护」（引擎：木马云查杀）把 Startup 里的 `.vbs` 当持久化模式
+  秒删。实测每次 ZCode 启动 → SessionStart hook → `schedule` → 重写 VBS → 1 秒内被删
+  （`hook.log` 04:57:26Z/05:02:27Z 对应 360 的 04:57:27/05:02:28）。它从未真正执行过，
+  只是在持续制造告警。真正的自动触发源一直是 SessionStart hook。
+- **影响**：功能零损失；机器上不再有杀软告警拉锯战。
+
 ## Unreleased — 2026-09-21（失效排查记录 / diagnostics）
 
 > 本次 **没有改动任何代码**，不影响插件版本号。以下是一次用户报障「悬停翻译失效」的

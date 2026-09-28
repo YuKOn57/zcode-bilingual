@@ -469,6 +469,50 @@ if(u==="BODY"||u==="HTML")break;
 var role=up.getAttribute&&up.getAttribute("role");
 if(u==="LI"||u==="BUTTON"||u==="A"||u==="LABEL"||u==="TR"||role==="button"||role==="menuitem"||role==="option"||role==="tab"||role==="listitem"){
 if(((up.textContent||"").length)<=lim){setTitle(up,txt);if(src!=null)up.__zzhSrcV=src;}break;}}}
+/* Truncation fallback: descriptions that ALREADY carry their translation inline
+   (plugin-authored "English / 中文" command & skill descriptions) can never match
+   the dictionary, and when the row CSS-truncates them the Chinese tail is simply
+   unreachable -- those rows showed NO tooltip at all. For any dictionary-miss
+   text long enough to be worth reading, find the element that actually clips it
+   (the text's direct parent, or a row-like ancestor) and attach that element's
+   FULL text as the tooltip. Gated on real layout overflow (scroll vs client
+   size), so fully visible text never grows a redundant tooltip; the textContent
+   cap keeps a big scrolling listbox from ever becoming a tooltip. */
+function clipped(e){try{var sw=e.scrollWidth,cw=e.clientWidth;
+if(typeof sw!=="number"||typeof cw!=="number")return false;
+if(cw===0&&e.clientHeight===0)return false;
+return sw>cw+1||e.scrollHeight>e.clientHeight+1;}catch(err){}return false;}
+/* Inline bilingual "English / 中文": plugin-authored command & skill descriptions
+   ship BOTH languages in ONE string, so the dictionary can never match them, and
+   the inline Chinese renders in a dim color that is hard to read (user report:
+   the Chinese half should come out as a hover tooltip EVEN when fully visible).
+   Extract the Chinese half straight from the text -- no dictionary needed:
+   greedy split on the LAST " / " whose remainder starts with a CJK char; the
+   English side must contain latin letters AND must not END on a CJK char (kills
+   "…设置 / 语言, …" mixes), so pure-Chinese "设置 / 语言" and "TCP / IP" /
+   "on / off" / "C:/path" never grow a tooltip. Layout-independent: works on
+   clipped, fully visible and even not-yet-rendered rows. */
+function inlineZh(t){try{
+if(t.indexOf("/")<0)return null;
+var i=t.indexOf("·");if(i>0&&i<40)t=t.slice(i+1);
+var m=/^([\s\S]{3,})[ \t]+\/[ \t]*([\u3000-\u303f\u4e00-\u9fff\uff00-\uffef][\s\S]*)$/.exec(t);
+if(!m||!/[A-Za-z]/.test(m[1]))return null;
+if(/[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]\s*$/.test(m[1]))return null;
+var zh=m[2].replace(/^\s+|\s+$/g,"");
+return zh.length>=2&&zh.length<=800?zh:null;}catch(e){return null;}}
+function truncFull(p,v){try{if(!p||p.nodeType!==1||p.isConnected===false)return;
+var t0=p.tagName;if(t0==="SCRIPT"||t0==="STYLE"||t0==="TEXTAREA"||t0==="OPTION"||t0==="INPUT")return;
+var el=null,up=p,d=0;
+if(clipped(p))el=p;
+while(!el&&up&&d<4){up=up.parentElement;d++;if(!up)break;var u=up.tagName;
+if(u==="BODY"||u==="HTML")break;
+var role=up.getAttribute&&up.getAttribute("role");
+if((u==="LI"||u==="BUTTON"||u==="A"||u==="LABEL"||u==="TR"||role==="button"||role==="menuitem"||role==="option"||role==="tab"||role==="listitem")&&clipped(up))el=up;}
+if(!el)return;
+var txt=el.textContent||"";txt=txt.replace(/^\s+|\s+$/g,"");
+var ci=txt.indexOf("·");if(ci>0&&ci<40)txt=txt.slice(ci+1).replace(/^\s+/,"");
+if(txt.length<2||txt.length>600)return;
+applyTo(el,txt,v);}catch(err){}}
 function handleText(n){try{if(!n||n.nodeType!==3||!n.nodeValue)return;
 var p=n.parentNode;if(!p||p.tagName==="INPUT"||p.tagName==="TEXTAREA")return;
 if(MET)MET.text++;
@@ -483,7 +527,10 @@ if(!ed)n.nodeValue=v.slice(0,i);applyTo(p,z2||o,o);return;}
 var z=null,vs=dictVariants(v);
 for(var vi=0;vi<vs.length&&!z;vi++)z=dict(vs[vi],1);
 if(z)applyTo(p,z,v);
-else clearStaleUp(p);}catch(e){}}
+else{clearStaleUp(p);
+var zc=inlineZh(v);
+if(zc)applyTo(p,zc,v);
+else if(v.length>=20)truncFull(p,v);}}catch(e){}}
 /* Short text inside <code>/<pre> gets a tooltip too -- skill / subagent NAMES are
    frequently rendered as a code chip, and the deep walk deliberately stops at
    PRE/CODE. Bounded to <=80 chars of textContent so real code blocks (the reason

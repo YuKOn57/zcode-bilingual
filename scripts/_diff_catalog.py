@@ -1,7 +1,6 @@
-import json, re, os
+import json, re, sys
 
-OUT = os.path.join(os.environ.get('TEMP', r'C:\Windows\Temp'), 'zcode-i18n')
-src = open(os.path.join(OUT, 'bundle.js'), encoding='utf8').read()
+src = sys.stdin.read()
 
 # strip the injected helper (tail) so it does not pollute
 cut = src.find(';try{window.__zcodeZhDict=')
@@ -33,11 +32,7 @@ print('zh == en (untranslated):', len(same))
 def unescape(s):
     return s.replace('\\`', '`').replace('\\\\', '\\').replace('\\n', '\n')
 
-os.makedirs(OUT, exist_ok=True)
-json.dump({'zh': zh, 'en': en}, open(os.path.join(OUT, 'catalog.json'), 'w', encoding='utf8'), ensure_ascii=False, indent=1)
-with open(os.path.join(OUT, 'gaps.txt'), 'w', encoding='utf8') as f:
-    for k in sorted(missing):
-        f.write(f'[NO-ZH] {k} = {unescape(en[k])}\n')
-    for k in sorted(same):
-        f.write(f'[SAME ] {k} = {unescape(en[k])}\n')
-print('written', OUT)
+for k in sorted(missing):
+    print(f'[NO-ZH] {k} = {unescape(en[k])}')
+for k in sorted(same):
+    print(f'[SAME ] {k} = {unescape(en[k])}')

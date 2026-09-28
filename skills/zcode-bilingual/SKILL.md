@@ -60,6 +60,19 @@ function w(e){let t=g[e]??g[`zh-CN`];return{formatMessage({id:e},n){ ... }}}
 > 已从它自己的 textContent 中消失时清除。**祖先上溯到行（button/li/role=option…）时加了体积上限**，
 > 免得整个滚动容器继承某一行的 tooltip。验证：`_helper_picker_test.mjs`（真实面板 DOM 复刻，9 项）。
 > 验证：模拟 DOM 跑真实 helper（`_helper_code_test.mjs` 覆盖 code chip、`_helper_editor_test.mjs` 覆盖编辑器内弹出面板 + 不改写约束）。
+> **内联双语提取（2026-09-28，v0.4.7，优先于截断兜底）**：双语描述（`English / 中文`）的中文半段
+> 就在文本里——词典必然未命中、行内中文又是浅灰色看不清（用户追加：**完整可见也要悬浮出中文**）。
+> `inlineZh()` 直接从文本提取最后一个 ` / ` 之后以 CJK 开头的整段作为悬停译文：无需词典、不看布局
+> （截断/完整可见/未渲染一律生效）。防误报：`空格+/`、右端 CJK 开头、左端含拉丁且不以 CJK 结尾、
+> 中文段 2–800 字符——`TCP / IP`、`on / off`、`设置 / 语言`、`C:/path` 均不命中。
+> **截断兜底（2026-09-28，v0.4.6）**：插件自带双语描述（`English / 中文`）整串不在词典里
+> （「本身已含中文」的描述故意不收录），词典必然未命中 → 行内 CSS `truncate` 截掉中文尾部时
+> **悬停什么都不出、内容看不全**（用户报障：`/mimosa-deep-audit`）。现对词典未命中且 ≥20 字符的文本
+> 用真实布局判断是否真被裁切（`scrollWidth/Height` > `clientWidth/Height`），命中则把该元素
+> **完整 textContent**（剥 `<来源标签> · ` 前缀）挂为 `title` 并照常加宽到行——悬停看全文。
+> 纯英文未收录文本被截断时同样受益。护栏：完整可见的文本绝不长冗余气泡；未渲染（尺寸 0）忽略；
+> 祖先回溯只接受行形元素，滚动列表容器永不变成整份列表的 tooltip；textContent 上限 600 字符；
+> 行回收照常走 `__zzhSrcV` 清除。验证：`_helper_trunc_test.mjs`（10 项）。
 
 **覆盖哪些元数据源**（`scripts/_scan_missing.py` 全都会扫）：
 
@@ -302,14 +315,16 @@ node bin/zcode-zh.mjs apply --asar <path>   # 指定自定义安装路径
 node scripts/self-heal.mjs schedule --reason manual   # 布防：退出 ZCode 后自动打补丁并重开
 node scripts/self-heal.mjs status                     # 自愈状态：请求/结果/worker/看门狗
 node scripts/self-heal.mjs cancel                     # 取消待执行的自动修复并停止 worker
-node scripts/self-heal.mjs arm-watchdog | unwatch     # 安装 / 移除登录看门狗
+node scripts/self-heal.mjs arm-watchdog | unwatch     # 安装 / 移除登录看门狗（默认不装；
+                                                      # Startup .vbs 会被 360/Defender 关键位置
+                                                      # 保护秒删，装了也白装，别主动装）
 ```
 
 ## 重要：必须先退出 ZCode
 
 `app.asar` 在 ZCode 运行期间被占用，无法替换，所以打补丁只能发生在 ZCode 完全退出之后。
 
-- **正常情况什么都不用做**：升级后 hook / 登录看门狗会自动布防，退出 ZCode 即自动修复并重开。
+- **正常情况什么都不用做**：升级后 SessionStart hook 会自动布防，退出 ZCode 即自动修复并重开。
 - 想立刻安排：`/zcode-bilingual:repair`，或双击插件目录里的 `repair.cmd`（ZCode 运行中也可以）。
 - 手动路径（ZCode 已完全退出、含托盘图标）：
   - `install.cmd` —— 注册插件 + 打补丁 + 启动 ZCode
