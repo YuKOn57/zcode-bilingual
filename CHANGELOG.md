@@ -1,5 +1,22 @@
 # 更新日志 / Changelog
 
+## v0.4.8 — 2026-09-29（ZCode 3.14.4 兼容性验证 / verified against ZCode 3.14.4）
+
+- **触发**：ZCode 自动更新到 3.14.4，`app.asar` 被整体替换（`patched:false / needsRepatch:true`），
+  常驻哨兵照常布防，等完全退出后自动重打。
+- **副本试打验证**（隔离副本，不动实机）：3.14.4 上 `apply` **exit 0**，choke point 仍是
+  `IntlProvider-*`（chunk 名 `BMWo3Clv` → `BNDfn-Cj`）且 **exact 命中**；副本 status
+  `patched:true / patchMode:choke-point / dictStale:false`，词典 655 条原样注入。
+- **文案缺口扫描（新方法）**：新旧 asar 的渲染资源按「去哈希 basename」配对，真实变化仅 4 处
+  （host/main 进程 chunk、`previewPaneOfficeContent` 同尺寸拆文件、`styles` +443 字节）；
+  对 `styles` chunk 做新旧**字符串集合差集为零**，`IntlProvider` chunk **字节数相同**
+  （catalog 译文原地微调，catalog 悬停自动覆盖）→ **3.14.4 无新增未覆盖英文，词典零改动**。
+  插件元数据侧复核（含当日重发布的 computer-use 0.6.3）同样全覆盖。
+- **回归**：helper 测试 4 套 33 项全过；`validate-dict` OK（0 重复键）。
+- **打包**：安装包内容与 v0.4.7 相同，仅排除开发用 `tests/` 与 `.mimosa` 会话状态残留；
+  构建脚本由 python 移植为 `dist_src/build.mjs`（本机已无 python 运行时）。
+- 代码与词典相对 v0.4.7 **零改动**，本版仅为 3.14.4 验证发版。
+
 ## v0.4.7 — 2026-09-28（内联双语提取：悬停必出中文 / inline bilingual extraction）
 
 - **用户追加需求**：`/` 面板里**所有英文**——包括右侧已带中文对照的——悬停都要显示中文翻译。

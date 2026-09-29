@@ -320,6 +320,17 @@ zh/en，向前扫 `=` 取变量名），把 helper 追加到同一 chunk，把�
 - ⚠️ 登录看门狗：`.vbs` 写入成功但**在本机 5~8 秒内被安全策略删除**（非沙箱假象，已用非沙箱视角复核）；
   `schtasks` 与 `HKCU\...\Run` 均「拒绝访问」。因此本机当前是 **hook 单触发源**，功能正常。
 
+### 已完成验证（2026-09-29，ZCode 3.14.3 → 3.14.4 实机更新）
+
+- 升级后 `status` 报 `patched:false / needsRepatch:true / zcodeVersion:3.14.4`，worker 真实存活等待（pid 10228）。
+- **副本试打**：3.14.4 的 `app.asar` 副本上 `apply` exit 0，choke point `IntlProvider-BNDfn-Cj.js`
+  **exact 命中**（3.14.3 为 `IntlProvider-BMWo3Clv.js`）；副本 status
+  `patched:true / patchMode:choke-point / dictStale:false`。
+- **缺口扫描**：新旧 asar 渲染资源按「去哈希 basename」配对，真实变化仅 4 处；`styles` chunk
+  新旧字符串集合差集为零、`IntlProvider` chunk 字节数相同（catalog 原地微调）→
+  **3.14.4 无新增未覆盖英文，词典零改动**（655 条）。
+- helper 测试 33 项、`validate-dict` 0 重复键，全过。
+
 ---
 
 ## 10. 部署到其他电脑（一键安装包）
