@@ -5,3 +5,5 @@ _missing_report.txt
 *.bak*
 scripts/_out/
 __pycache__/
+_batch_out/
+_new_market_missing.json

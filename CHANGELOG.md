@@ -1,5 +1,73 @@
 # 更新日志 / Changelog
 
+## v0.5.2 — 2026-09-29（翻译模型可自选：Ctrl+Alt+M 窗口面板 + 发布前安全/稳定性加固）
+
+- **翻译模型不写死**：解析优先级 `live-config.json` 的 `backend.model` > 顶层 `"model"` >
+  wb2api config 自带字段 > 内置兜底 `deepseek-v4.1-flash`；`/translate` 每请求重读配置、
+  `/ping` 实时解析——改文件或点面板即生效，无需重启；所选来源记在 `modelSource`
+  （/ping、status、启动日志均可见）。
+- **窗口内模型自选面板（Ctrl+Alt+M）**：helper 绘制的深色面板（Shadow DOM、
+  `pointer-events` 不遮蔽），列表 = 当前 → 常用（选择历史，去重上限 12）→
+  网关 `/v1/models` 目录（10 分钟缓存）→ 内置候选；支持自由输入模型 ID、
+  「恢复默认（不指定）」一键还原。点选即 `POST /model`，**由 server 写配置，
+  渲染层不碰文件**。 Esc / 点击面板外关闭。
+- **helper marker `__zcodeZhTitle4` → `__zcodeZhTitle5`**（self-heal / session-start /
+  hot-inject 的 CURRENT_MARKER 同步升级）。
+- **安全加固（发布前审计）**：dict-server 新增 Origin/Host 回环门禁——无 Origin
+  （本机脚本/钩子）、`null`（file:// 渲染层）、`file://`/`app://` 放行；任何 http(s)
+  来源与反弹 Host 一律 403。此前仅绑定 127.0.0.1 + `ACAO:*`，本机任意网页仍可驱动
+  `/translate` 烧 LLM 配额、`POST /model` 改配置——现已封死。
+- **长时运行修复（发布前审计）**：
+  - `lastRequestAt` 初始化为 0 且只被 /translate 刷新 → 「启动 60 秒内没有翻译请求的
+    实例必被 idle-2h 误杀」（服务反复消失的真因）；改为启动即计时，任何请求都刷新时钟。
+  - 收割批处理加**重入保护**（LLM 响应慢于 30s tick 时不再堆叠并发批）。
+  - 清单扫描缓存改为纯时间窗（空结果不再每 30s 触发全盘重扫）。
+  - 渲染层 `LM` 按需翻译缓存加上限（1000 条 FIFO），长会话不再无界增长。
+- **测试**：`_server_scan_test` 41 项（新增门禁/写入路径/目录聚合）、`_helper_live_test`
+  25 项（新增面板开合/点选/POST/提示条），六套共 99 项全过；面板探针
+  `scripts/_probe_picker.mjs` 入库。
+
+## v0.5.1 — 2026-09-29（模型选择收敛为配置文件）
+
+- 短暂引入的 `live-ctl set-model/clear-model` 子命令按用户要求移除；模型选择改为
+  手动编辑 `live-config.json`（保存即生效），`live-ctl` 恒为 ensure/status/stop。
+
+## v0.5.0 — 2026-09-29（实时悬浮翻译 / live hover translation）
+
+- **方向**：从「词典精确匹配」升级为「通用悬浮翻译软件」——任何新增的英文（新装插件、
+  新市场卡片、新 UI 面）悬浮即出翻译，不再要求「先补词典、再重打补丁」。
+- **前置实锤（CDP 探针）**：ZCode 3.14.4 渲染层**无 CSP 限制**，页面内 `fetch` 到
+  `127.0.0.1:17981` 直接 200 → 运行时热更新词典 + 按需翻译可行；本机 wb2api 网关
+  （`127.0.0.1:7863`，OpenAI 兼容）`deepseek-v4.1-flash` 短句翻译 1-2s 出结果。
+- **`scripts/dict-server.mjs`（新增，回环服务 17981-17985）**：
+  - `GET /dict`：热词典 = `buildDictionary()`（dictionary.json + description_i18n 全量）∪
+    learned 缓存；helper 每 5 分钟拉取合并 → **新装插件几分钟内免重打直接可译**。
+  - `GET /translate?q=`：按需翻译，`learned.json` 永久缓存（LRU 5000 条），方向自动
+    （纯英文→中文、纯中文→英文）；限速 30/min，防重复在途请求。
+  - **清单收割**：启动+每 10 分钟扫描插件 cache/marketplaces/`plugins.dirs`/`~/.zcode/agents`
+    的全部 UI 字符串（v0.5.0 实测 1953 条），**仅在用户没有悬停操作时**每 30s 批量译 12 条
+    进 learned → 新插件文案几分钟内进入热词典。
+  - 生命周期对齐 wb2api 政策：ZCode 关闭 3 分钟/空闲 2h/满 24h 自动退出，由 hooks 复活；
+    `live-config.json` 可禁用（`disabled`）、换端口、换后端（默认自动探测 `~/.dsh/wb2api`）。
+- **helper 实时层（marker `__zcodeZhTitle3`→`__zcodeZhTitle4`）**：
+  - 词典未命中的文本在渲染时标记 `__zzhMiss`；**悬停才发起翻译**（单一委托 mouseover
+    捕获监听，不扫描、不为没人看的文本发请求）；结果挂 `title` 并合并进 `D`（下次瞬时）。
+  - 指针仍悬停时弹**小气泡**（`position:fixed`+shadow DOM，`pointer-events:none` 不挡点击，
+    6s 自动消失、滚动即隐）；词典/catalog 命中仍走原生 title，零行为变化。
+  - 全部 fail-silent：server 不在/被禁 → 行为与 v0.4.x 完全一致；`window.__zcodeZhLive=false`
+    全局禁用。
+- **`buildDictionary()` 合入 learned.json**：用户悬停学到的每个词条在下一次重打时烤进
+  asar → 离线/无 server 机器也保留全部已学翻译。
+- **hooks**：SessionStart → `live-ctl.mjs ensure`（探针 + 拉起 detached server）；
+  UserPromptSubmit → pid 文件轻量复活检查（活=一次 read+kill(0)）。marker 常量同步 v4。
+- **`status` 新增 `live` 字段**（探测回环服务，600ms 上限，绝不影响 status 本身）。
+- **`scripts/hot-inject.mjs`（新增）**：CDP 把新 helper 注入运行中的渲染层，更新不用等重启
+  （临时桥接，重打后以烤进 asar 的为准）。
+- **验证**：6 套测试 67 项全过（新增 `_helper_live_test` 19 项、`_server_scan_test` 15 项）；
+  实机全链路：server 起动→/translate 双向正确→learned 落盘→/dict 合流；CDP 热注入后
+  运行中的 ZCode 里未知英文悬浮出中文（"Zephyr Quorum Resonator Probe" →
+  "Zephyr Quorum 谐振器探针"）；收割器 30s/批稳定运行。
+
 ## v0.4.8 — 2026-09-29（ZCode 3.14.4 兼容性验证 / verified against ZCode 3.14.4）
 
 - **触发**：ZCode 自动更新到 3.14.4，`app.asar` 被整体替换（`patched:false / needsRepatch:true`），

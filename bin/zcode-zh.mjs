@@ -70,8 +70,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const MARKER = '__zcodeZhTitle3';
-const LEGACY_MARKERS = ['__zcodeZhTitle2', '__zcodeZhInline', '__zcodeZhTitle', '__zcodeZhHover4', '__zcodeZhHover3', '__zcodeZhHover2', '__zcodeZhHover', '__zcodeZhBilingual'];
+const MARKER = '__zcodeZhTitle5';
+const LEGACY_MARKERS = ['__zcodeZhTitle4', '__zcodeZhTitle3', '__zcodeZhTitle2', '__zcodeZhInline', '__zcodeZhTitle', '__zcodeZhHover4', '__zcodeZhHover3', '__zcodeZhHover2', '__zcodeZhHover', '__zcodeZhBilingual'];
 const SEP_ESCAPED = '\\u2063'; // emitted into the bundle as an escape sequence
 const BACKUP_SUFFIX = '.zcode-zh.bak';
 
@@ -407,6 +407,79 @@ var MET=window.__zcodeZhMetrics?{cb:0,mut:0,text:0,attr:0,node:0,ms:0,since:Date
 try{var _CAT=(${catalogExpr})||{},_EN=_CAT["en-US"]||{},_ZH=_CAT["zh-CN"]||{};
 for(var _k in _EN){var _a=_EN[_k],_b=_ZH[_k];if(_a&&_b&&_a!==_b){if(!REV[_a])REV[_a]=_b;if(!FWD[_b])FWD[_b]=_a;}}}catch(e){}
 if(MET)window.__zcodeZhStats=MET;
+/* ---- live layer (v0.5.0): hot dictionary + on-demand translation ----
+   A tiny loopback service (scripts/dict-server.mjs) serves a HOT dictionary on
+   127.0.0.1:17981-17985 -- base entries + everything the installed plugins ship
+   RIGHT NOW + every string the user ever had translated. It also translates
+   dictionary misses on demand (hover an unknown English/Chinese string -> the
+   service asks the configured LLM backend, caches the answer forever, and the
+   tooltip pops in after a moment). Everything here is OPTIONAL and fail-silent:
+   with the service absent the helper behaves exactly like v0.4.x. Kill switch:
+   window.__zcodeZhLive = false. */
+var LP=[17981,17982,17983,17984,17985],LPI=0,LB=null,LDOWN=0,LSRVOFF=0,LTMR=null,LM={},LF={};
+var CJ=/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+function lfind(cb){if(typeof fetch!="function")return;
+if(window.__zcodeZhLive===false||Date.now()<LDOWN)return;
+if(LB){cb();return;}
+if(LPI>=LP.length){LDOWN=Date.now()+300000;return;}
+var p=LP[LPI++];
+fetch("http://127.0.0.1:"+p+"/ping",{cache:"no-store"}).then(function(r){return r.ok?r.json():null;}).then(function(j){
+if(j&&j.svc=="zcode-bilingual"){LB="http://127.0.0.1:"+p;if(j.live===false)LSRVOFF=1;cb();}else lfind(cb);
+}).catch(function(){lfind(cb);});}
+function lrefresh(){if(!LB||window.__zcodeZhLive===false||typeof fetch!="function")return;
+try{fetch(LB+"/dict",{cache:"no-store"}).then(function(r){return r.ok?r.json():null;}).then(function(j){
+if(!j)return;
+if(j.live===false){LSRVOFF=1;return;}LSRVOFF=0;
+var d=j.dict||{};for(var k in d)if(!D[k])D[k]=d[k];
+}).catch(function(){LB=null;LPI=0;});}catch(e){}}
+function ltick(){if(LB)lrefresh();else lfind(lrefresh);}
+function lboot(){if(LTMR)return;ltick();try{LTMR=setInterval(ltick,300000);}catch(e){}}
+/* markMiss: remember on the element that its text could NOT be translated by any
+   offline source. The lookup itself happens on hover (single delegated listener
+   below) so the helper never fires network requests for text nobody looks at. */
+function markMiss(el,t){try{
+if(LSRVOFF||window.__zcodeZhLive===false)return;
+var k=String(t).replace(/\s+/g," ").trim();
+if(k.length<2||k.length>600)return;
+if(!/[A-Za-z]/.test(k)&&!CJ.test(k))return;
+if(el.__zzhMiss===k)return;el.__zzhMiss=k;}catch(e){}}
+function liveLookup(el,k){try{
+if(!LB||LSRVOFF||window.__zcodeZhLive===false||typeof fetch!="function")return;
+if(LM[k]!==undefined){if(LM[k])applyTo(el,LM[k],k);return;}
+if(LF[k])return;LF[k]=1;
+try{fetch(LB+"/translate?q="+encodeURIComponent(k),{cache:"no-store"}).then(function(r){return r.ok?r.json():null;}).then(function(j){
+delete LF[k];
+var tr=j&&j.t?String(j.t):"";
+LM[k]=tr;
+try{var lk=Object.keys(LM);if(lk.length>1000){for(var li=0;li<lk.length-1000;li++)delete LM[lk[li]];}}catch(e){}
+if(!tr)return;
+if(!D[k])D[k]=tr;
+applyTo(el,tr,k);
+if(el&&el.matches&&el.matches(":hover"))bubbleShow(el,tr);
+}).catch(function(){delete LF[k];LB=null;LPI=0;LDOWN=Date.now()+90000;});}catch(e){delete LF[k];}}catch(e){}}
+/* Bubble: a native title set while the pointer is ALREADY over the element does
+   not pop until the mouse moves, so for a live-answered hover show a small
+   fixed overlay instead. pointer-events:none -> it can never intercept clicks;
+   6s auto-hide; scroll hides it. Dictionary/catalog hits keep the native title
+   and never grow a bubble -- this is only for the async "translated on demand"
+   path. */
+var BUB=null,BTMR=0;
+function bubbleShow(el,txt){try{
+if(!BUB){BUB=document.createElement("div");
+BUB.style.cssText="position:fixed;left:0;top:0;display:none;z-index:2147483647;pointer-events:none;";
+var sh=null;try{sh=BUB.attachShadow({mode:"open"});}catch(e){}
+var d=document.createElement("div");
+d.style.cssText="font:12px/1.6 'Segoe UI','Microsoft YaHei',sans-serif;background:#fffbe8;color:#3d3d3d;border:1px solid #e3cf7a;border-radius:6px;padding:3px 9px;box-shadow:0 2px 10px rgba(0,0,0,.22);max-width:460px;white-space:pre-wrap;word-break:break-word;";
+(sh||BUB).appendChild(d);BUB.__d=d;
+(document.documentElement||document.body).appendChild(BUB);}
+BUB.__d.textContent=txt;
+var r=null;try{r=el.getBoundingClientRect();}catch(e){}
+var vw=window.innerWidth||1280,vh=window.innerHeight||800,x=16,y=64;
+if(r&&typeof r.left=="number"){x=Math.max(8,Math.min(r.left,vw-488));y=r.bottom+6;if(y+44>vh)y=Math.max(8,r.top-42);}
+BUB.style.left=x+"px";BUB.style.top=y+"px";BUB.style.display="block";
+if(BTMR)clearTimeout(BTMR);
+BTMR=setTimeout(function(){try{if(BUB)BUB.style.display="none";}catch(e){}},6000);
+}catch(e){}}
 /* dict(text, allowForward)
    allowForward is FALSE for the separator branch on purpose. There the text node
    already carries both languages (visible + SEP + hidden) and the hidden part must
@@ -530,7 +603,9 @@ if(z)applyTo(p,z,v);
 else{clearStaleUp(p);
 var zc=inlineZh(v);
 if(zc)applyTo(p,zc,v);
-else if(v.length>=20)truncFull(p,v);}}catch(e){}}
+else{if(v.length>=20)truncFull(p,v);
+/* nothing offline matched -> offer the live path (lookup fires on hover) */
+if(!p.__zzhT)markMiss(p,v);}}}catch(e){}}
 /* Short text inside <code>/<pre> gets a tooltip too -- skill / subagent NAMES are
    frequently rendered as a code chip, and the deep walk deliberately stops at
    PRE/CODE. Bounded to <=80 chars of textContent so real code blocks (the reason
@@ -564,6 +639,126 @@ if(a.nodeType===3)handleText(a);else if(a.nodeType===1)walk(a,0);}}}
 if(MET)MET.ms+=Date.now()-_t0;});
 function boot(){try{obs.observe(document.documentElement,{childList:true,subtree:true,characterData:true,attributes:true});walk(document.body,0);}catch(e){}}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);else boot();
+/* ---- model picker (Ctrl+Alt+M): hand-pick the translation model in-window,
+   styled after the app's own model dropdown. Lists GET /models (current +
+   gateway catalog + recently used + suggestions); picking one POSTs /model
+   {model} -- or {default:true} for "no preference" -- and the SERVICE writes
+   live-config.json. The renderer never touches files. Optional live-layer UI:
+   with the service absent the shortcut is a no-op. */
+var PK=null;
+function pkClose(){try{if(PK){if(PK.__off)PK.__off();if(PK.remove)PK.remove();}}catch(e){}PK=null;}
+function pkOn(el,ev,fn){try{el.addEventListener(ev,fn);}catch(e){try{el["on"+ev]=fn;}catch(e2){}}}
+function pkSourceLabel(s,cur){if(cur==="current")return"✓ 当前";
+return s==="gateway"?"网关":s==="history"?"常用":s==="suggestion"?"候选":"";}
+function pkRow(host,item,cur){
+try{var r=document.createElement("div");
+r.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 9px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;color:#e8e8e8;";
+r.__pkId=item.id;
+var n=document.createElement("span");
+n.style.cssText="overflow:hidden;text-overflow:ellipsis;";
+n.textContent=item.id;
+r.appendChild(n);
+var tag=document.createElement("span");
+tag.style.cssText="flex:none;font-size:11px;opacity:.6;";
+tag.textContent=pkSourceLabel(item.source,item.source);
+r.appendChild(tag);
+pkOn(r,"click",function(){pkPick(item.id);});
+try{r.onmouseenter=function(){r.style.background="#2e2f33";};r.onmouseleave=function(){r.style.background="";};}catch(e){}
+host.appendChild(r);
+if(PK)PK.__rows.push({el:r,fn:function(){pkPick(item.id);}});
+}catch(e){}}
+function pkPick(id){try{
+if(!LB||!PK)return;
+var toast=function(msg){try{if(PK&&PK.__toast){PK.__toast.textContent=msg;PK.__toast.style.display="block";if(PK.__tmr)clearTimeout(PK.__tmr);PK.__tmr=setTimeout(function(){try{if(PK&&PK.__toast)PK.__toast.style.display="none";}catch(e){}},2500);}}catch(e){}};
+fetch(LB+"/model",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:id})})
+.then(function(r){return r.ok?r.json():null;})
+.then(function(j){
+if(j&&j.ok){toast("已切换："+(j.model||id));if(PK)pkRender();}
+else toast("切换失败");
+}).catch(function(){toast("服务不可达");});
+}catch(e){}}
+function pkDefault(){try{
+if(!LB||!PK)return;
+fetch(LB+"/model",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({default:true})})
+.then(function(r){return r.ok?r.json():null;})
+.then(function(j){if(PK&&PK.__toast){PK.__toast.textContent=(j&&j.ok)?"已恢复默认（不指定）":"操作失败";PK.__toast.style.display="block";if(PK)pkRender();}}).catch(function(){});
+}catch(e){}}
+function pkRender(){try{
+if(!PK||!PK.__list)return;
+fetch(LB+"/models",{cache:"no-store"}).then(function(r){return r.ok?r.json():null;}).then(function(j){
+try{if(!PK||!PK.__list)return;
+if(PK.__cur)PK.__cur.textContent=j&&j.current?("当前："+j.current):"当前：默认（未指定）";
+try{while(PK.__list.childNodes.length)PK.__list.removeChild(PK.__list.childNodes[0]);}catch(e){try{PK.__list.childNodes.length=0;}catch(e2){}}
+PK.__rows=[];
+var items=(j&&j.models)||[];
+for(var i=0;i<items.length&&i<60;i++)pkRow(PK.__list,items[i],j&&j.current);
+}catch(e){}}).catch(function(){});
+}catch(e){}}
+function pkOut(ev){try{if(PK&&ev.target!==PK&&!(PK.contains&&PK.contains(ev.target)))pkClose();}catch(e){}}
+function pkKey(ev){try{if(ev&&ev.key==="Escape")pkClose();}catch(e){}}
+function pkToggle(){try{
+if(PK){pkClose();return;}
+if(LSRVOFF||window.__zcodeZhLive===false||typeof fetch!="function")return;
+if(!LB){lfind(function(){pkToggle();});return;}
+PK=document.createElement("div");
+PK.style.cssText="position:fixed;right:18px;top:64px;z-index:2147483646;width:330px;font:13px/1.7 'Segoe UI','Microsoft YaHei',sans-serif;";
+try{PK.__root=PK.attachShadow?PK.attachShadow({mode:"open"}):PK;}catch(e){PK.__root=PK;}
+var root=PK.__root;
+var panel=document.createElement("div");
+panel.style.cssText="background:#1f2023;color:#e8e8e8;border:1px solid #3a3b3f;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.45);padding:8px;max-height:62vh;overflow:auto;";
+root.appendChild(panel);
+var head=document.createElement("div");
+head.style.cssText="display:flex;justify-content:space-between;align-items:center;padding:2px 6px 6px;font-weight:600;color:#fff;";
+var ht=document.createElement("span");ht.textContent="翻译模型";head.appendChild(ht);
+PK.__cur=document.createElement("span");PK.__cur.style.cssText="font-weight:400;font-size:11px;opacity:.6;overflow:hidden;text-overflow:ellipsis;max-width:200px;white-space:nowrap;";head.appendChild(PK.__cur);
+panel.appendChild(head);
+PK.__list=document.createElement("div");panel.appendChild(PK.__list);
+PK.__rows=[];
+var inrow=document.createElement("div");
+inrow.style.cssText="display:flex;gap:6px;padding:6px 2px 2px;";
+PK.__inp=document.createElement("input");
+try{PK.__inp.setAttribute("placeholder","输入模型 ID 后回车/点使用");}catch(e){try{PK.__inp.placeholder="输入模型 ID 后回车/点使用";}catch(e2){}}
+PK.__inp.style.cssText="flex:1;min-width:0;background:#2a2b2f;border:1px solid #3a3b3f;border-radius:6px;color:#e8e8e8;padding:4px 8px;font:12px/1.5 inherit-font;outline:none;";
+pkOn(PK.__inp,"keydown",function(ev){try{if(ev&&ev.key==="Enter"){if(PK.__inp.value)pkPick(PK.__inp.value);ev.stopPropagation();}}catch(e){}});
+inrow.appendChild(PK.__inp);
+var btn=document.createElement("div");
+btn.textContent="使用";
+btn.style.cssText="flex:none;background:#3b82f6;color:#fff;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:12px;";
+pkOn(btn,"click",function(){try{if(PK.__inp.value)pkPick(PK.__inp.value);}catch(e){}});
+inrow.appendChild(btn);
+panel.appendChild(inrow);
+var def=document.createElement("div");
+def.textContent="恢复默认（不指定）";
+def.style.cssText="padding:6px 9px;border-radius:6px;cursor:pointer;color:#9aa0a6;";
+pkOn(def,"click",pkDefault);
+try{def.onmouseenter=function(){def.style.background="#2e2f33";};def.onmouseleave=function(){def.style.background="";};}catch(e){}
+panel.appendChild(def);
+PK.__toast=document.createElement("div");
+PK.__toast.style.cssText="display:none;margin-top:6px;padding:4px 9px;background:#243b2a;color:#9be29b;border-radius:6px;font-size:12px;";
+panel.appendChild(PK.__toast);
+(document.documentElement||document.body).appendChild(PK);
+pkRender();
+PK.__off=function(){try{document.removeEventListener("mousedown",pkOut,true);document.removeEventListener("keydown",pkKey,true);}catch(e){}};
+document.addEventListener("mousedown",pkOut,true);
+document.addEventListener("keydown",pkKey,true);
+}catch(e){pkClose();}}
+/* live layer triggers: one dict refresh 4s after boot (then every 5 min), one
+   delegated hover listener (walks <=5 ancestors for a miss marker), one capture
+   scroll listener to hide the bubble, one capture keydown for the model picker.
+   No per-node listeners anywhere. */
+try{setTimeout(lboot,(window.__zcodeZhLiveBootDelay|0)||4000);
+document.addEventListener("mouseover",function(ev){try{
+var e=ev&&ev.target;if(!e||e.nodeType!==1)return;
+var d=0;while(e&&d<5){if(e.__zzhMiss){liveLookup(e,e.__zzhMiss);break;}e=e.parentElement;d++;}
+}catch(e){}},true);
+document.addEventListener("scroll",function(){try{if(BUB&&BUB.style)BUB.style.display="none";}catch(e){}},true);
+document.addEventListener("keydown",function(ev){try{
+if(!ev||!ev.ctrlKey||!ev.altKey||ev.shiftKey||ev.metaKey)return;
+var k=ev.key;if(k!=="m"&&k!=="M")return;
+try{ev.preventDefault();}catch(e){}
+pkToggle();
+}catch(e){}},true);
+}catch(e){}
 }catch(e){}})();
 `;
 }
@@ -887,8 +1082,38 @@ function collectInstalledDictionary() {
   return out;
 }
 
+/**
+ * en -> zh pairs the local live-translation server has LEARNED at runtime
+ * (%LOCALAPPDATA%\zcode-bilingual\learned.json, written by scripts/dict-server.mjs).
+ *
+ * Every string the user ever hovered and had translated on demand lands here, so
+ * each re-patch bakes the accumulated knowledge into app.asar: even with the live
+ * server switched off (or on a machine without it), everything the user ever
+ * looked up keeps translating. User dictionary.json still wins over learned
+ * entries, because it is merged after this.
+ */
+function learnedDictionary() {
+  const file = path.join(
+    process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'),
+    'zcode-bilingual',
+    'learned.json',
+  );
+  const j = readDictionaryFile(file);
+  if (!j) return {};
+  const out = {};
+  for (const [k, v] of Object.entries(j)) {
+    if (k.startsWith('_')) continue;
+    const zh = v && typeof v === 'object' ? v.t : v;
+    if (typeof zh !== 'string' || !zh) continue;
+    const key = normalizeKey(k);
+    if (!key) continue;
+    out[key] = normalizeKey(zh);
+  }
+  return out;
+}
+
 function buildDictionary(explicitFile) {
-  const merged = { ...collectInstalledDictionary() };
+  const merged = { ...collectInstalledDictionary(), ...learnedDictionary() };
   const fileHints = {}; // "~name.mjs": match any text ending with name.mjs (hook / script commands)
   const overrides = {}; // "@i18n.key": replace ZCode's own zh-CN message (official zh may keep English)
   const files = [explicitFile, path.join(PLUGIN_ROOT, 'dictionary.json')].filter(Boolean);
@@ -1019,7 +1244,43 @@ function isPatched(archive) {
   return detectMarker(archive) !== null;
 }
 
-function cmdStatus(args) {
+/**
+ * Is the live-translation service (scripts/dict-server.mjs) up?
+ * Bounded to ~600 ms across the whole port range; never throws; a failure
+ * simply reports live: { running: false }.
+ */
+async function probeLiveService() {
+  const http = await import('node:http');
+  const ping = (port) =>
+    new Promise((resolve) => {
+      let done = false;
+      const fin = (v) => { if (!done) { done = true; resolve(v); } };
+      try {
+        const req = http.request({ host: '127.0.0.1', port, path: '/ping', method: 'GET', timeout: 250 }, (res) => {
+          let body = '';
+          res.on('data', (c) => { body += c; if (body.length > 4096) res.destroy(); });
+          res.on('end', () => {
+            try {
+              const j = JSON.parse(body);
+              fin(j && j.svc === 'zcode-bilingual' ? { running: true, port, up: j.up, learned: j.learned, model: j.model || null } : false);
+            } catch { fin(false); }
+          });
+          res.on('error', () => fin(false));
+        });
+        req.on('timeout', () => { req.destroy(); fin(false); });
+        req.on('error', () => fin(false));
+        req.end();
+      } catch { fin(false); }
+    });
+  for (const port of [17981, 17982, 17983, 17984, 17985]) {
+    // eslint-disable-next-line no-await-in-loop -- ports are probed in order, first hit wins
+    const hit = await ping(port);
+    if (hit) return hit;
+  }
+  return { running: false };
+}
+
+async function cmdStatus(args) {
   const asarPath = findAsar(args.asar);
   const fuses = checkFuses(asarPath);
   const backup = asarPath + BACKUP_SUFFIX;
@@ -1083,6 +1344,9 @@ function cmdStatus(args) {
   // Same idea, but for the CODE side: an edited patcher (helper improvements) or
   // dictionary makes the baked copy stale even when the dictionary hash matches.
   result.codeStale = marker === MARKER ? inputsStale(asarPath) : false;
+  // Live-translation service: adds on-demand translation for text no offline
+  // source covers. Purely informational -- status must never fail on it.
+  try { result.live = await probeLiveService(); } catch { result.live = { running: false }; }
   console.log(JSON.stringify(result, null, 2));
   return marker === MARKER ? 0 : 1;
 }
@@ -1345,16 +1609,19 @@ function parseArgs(argv) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const cmd = args._[0] || 'status';
-  try {
-    if (cmd === 'status') return cmdStatus(args);
-    if (cmd === 'apply') return cmdApply(args);
-    if (cmd === 'restore') return cmdRestore(args);
-    console.error(`Unknown command: ${cmd}\nUsage: zcode-zh <status|apply|restore> [--asar <path>] [--dry-run]`);
-    return 2;
-  } catch (err) {
-    console.error(String((err && err.message) || err));
-    return 1;
-  }
+  const run = async () => {
+    try {
+      if (cmd === 'status') return await cmdStatus(args);
+      if (cmd === 'apply') return cmdApply(args);
+      if (cmd === 'restore') return cmdRestore(args);
+      console.error(`Unknown command: ${cmd}\nUsage: zcode-zh <status|apply|restore> [--asar <path>] [--dry-run]`);
+      return 2;
+    } catch (err) {
+      console.error(String((err && err.message) || err));
+      return 1;
+    }
+  };
+  run().then((code) => { process.exitCode = code; });
 }
 
 // Pure helpers are exported so tests can exercise the patch logic (identifier

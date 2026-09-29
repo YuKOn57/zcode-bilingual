@@ -1,10 +1,10 @@
 {
   "name": "zcode-bilingual",
-  "version": "0.4.8",
-  "description": "Hover ZCode UI text to see a translation tooltip: English UI shows Chinese, Chinese UI shows English. The original text and the layout are never modified. Catalog-driven surfaces are covered automatically; plugin/skill/subagent/MCP metadata is covered by an extensible dictionary.json. Self-healing: a ZCode update that wipes the patch is detected and repaired automatically.",
+  "version": "0.5.2",
+  "description": "Hover ZCode UI text to see a translation tooltip: English UI shows Chinese, Chinese UI shows English. The original text and the layout are never modified. v0.5.0 adds a live layer: a local service delivers a hot dictionary (new plugins translate within minutes, no re-patch) and translates unknown text on hover via a configurable LLM backend, caching every answer forever.",
   "description_i18n": {
     "en": "Hover ZCode UI text to see a translation tooltip: English UI shows Chinese, Chinese UI shows English. The original text and the layout are never modified. Catalog-driven surfaces are covered automatically; plugin/skill/subagent/MCP metadata is covered by an extensible dictionary.json.",
-    "zh-CN": "鼠标悬停在 ZCode 界面文案上时浮出另一种语言的翻译气泡：英文界面显示中文，中文界面显示英文。原有文字与排版完全不动。客户端文案目录自动覆盖；插件/技能/子智能体/MCP 的动态文字由可扩展的 dictionary.json 覆盖。"
+    "zh-CN": "鼠标悬停在 ZCode 界面文案上时浮出另一种语言的翻译气泡：英文界面显示中文，中文界面显示英文。原有文字与排版完全不动。v0.5.0 新增实时层：本地服务提供热词典（新装插件几分钟内免重打直接可译），词典未命中的文案悬停时通过可配置的 LLM 后端现场翻译，并永久缓存每个结果。翻译模型不写死：会话窗口 Ctrl+Alt+M 呼出面板自选，或在 live-config.json 手动填写 \"model\"，保存即生效。"
   },
   "author": {
     "name": "YuKOn"

@@ -24,7 +24,8 @@ import { fileURLToPath } from 'node:url';
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SELF_HEAL = path.join(PLUGIN_ROOT, 'scripts', 'self-heal.mjs');
-const CURRENT_MARKER = '__zcodeZhTitle3';
+const LIVE_CTL = path.join(PLUGIN_ROOT, 'scripts', 'live-ctl.mjs');
+const CURRENT_MARKER = '__zcodeZhTitle5';
 
 const LOCAL = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
 const DATA_DIR = process.env.ZCB_DATA_DIR || path.join(LOCAL, 'zcode-bilingual');
@@ -170,6 +171,27 @@ function armSelfHeal(reason, sentinel) {
   }
 }
 
+/**
+ * Make sure the live-translation service is up (scripts/dict-server.mjs via
+ * live-ctl.mjs ensure). Fast path is one loopback probe (~5 ms); the spawn path
+ * is a detached child that outlives this hook. Runs after the status note is
+ * decided so a failure can only downgrade the note, never break the hook.
+ */
+function ensureLive() {
+  try {
+    const r = spawnSync(process.execPath, [LIVE_CTL, 'ensure'], {
+      encoding: 'utf8',
+      timeout: 8000,
+      windowsHide: true,
+    });
+    diag(`ensureLive status=${r.status} out=${String(r.stdout || '').replace(/\s+/g, ' ').slice(0, 160)}`);
+    return r.status === 0;
+  } catch (e) {
+    diag(`ensureLive THREW ${(e && e.message) || e}`);
+    return false;
+  }
+}
+
 let note;
 let found = false;
 for (const asar of candidates()) {
@@ -196,6 +218,10 @@ for (const asar of candidates()) {
   );
 
   if (st && st.patched && st.marker === CURRENT_MARKER && !replaced) {
+    // Live layer: hot dictionary + on-demand translation for text the baked
+    // dictionary does not know (new plugins, new UI surfaces). Only meaningful
+    // while the current patch is applied, so it is ensured here and only here.
+    const liveOk = ensureLive();
     const stale = inputsNewerThanState(asar);
     // ALWAYS keep a resident sentinel armed -- not just when something looks stale.
     // electron-updater replaces app.asar while ZCode is closed and then relaunches
@@ -221,6 +247,11 @@ for (const asar of candidates()) {
       note =
         'zcode-bilingual: 界面悬停翻译已启用（英文界面悬停出中文，中文界面悬停出英文）。' +
         'Hover-to-translate is active.';
+      if (liveOk) {
+        note +=
+          ' 实时翻译层已就绪：新装插件/新英文文案悬浮即译（词典未收录时现场翻译）。' +
+          'Live layer ready: brand-new plugin text translates on hover on demand.';
+      }
       if (result && result.ok && result.autoHeal && result.at) {
         const ageMs = Date.now() - Date.parse(result.at);
         if (Number.isFinite(ageMs) && ageMs < 3 * 24 * 3600 * 1000) {

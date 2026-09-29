@@ -25,12 +25,15 @@ import { fileURLToPath } from 'node:url';
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SELF_HEAL = path.join(PLUGIN_ROOT, 'scripts', 'self-heal.mjs');
+const LIVE_CTL = path.join(PLUGIN_ROOT, 'scripts', 'live-ctl.mjs');
 
 const LOCAL = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
 const DATA_DIR = process.env.ZCB_DATA_DIR || path.join(LOCAL, 'zcode-bilingual');
 const LOCK_PID_FILE = path.join(DATA_DIR, 'self-heal-worker.lock', 'pid.json');
 const REQUEST_FILE = path.join(DATA_DIR, 'self-heal-request.json');
 const STAMP_FILE = path.join(DATA_DIR, 'sentinel-arm.stamp');
+const LIVE_PID_FILE = path.join(DATA_DIR, 'live-server.pid');
+const LIVE_STAMP_FILE = path.join(DATA_DIR, 'live-arm.stamp');
 const THROTTLE_MS = Number(process.env.ZCB_ARM_THROTTLE_MS) || 60 * 1000;
 
 // Hook contract: the payload arrives on stdin. Drain it so the parent never
@@ -52,6 +55,38 @@ function pidAlive(pid) {
     return !!(e && e.code === 'EPERM');
   }
 }
+
+/**
+ * Live layer (dict-server.mjs) revive, pid-file only — no network probes here
+ * (that is live-ctl's job). Healthy cost: one small read + one kill(pid, 0).
+ * Dead path: spawnSync live-ctl ensure, throttled to once a minute like the
+ * sentinel arm above.
+ */
+function reviveLive() {
+  try {
+    const pid = Number(fs.readFileSync(LIVE_PID_FILE, 'utf8').trim());
+    if (Number.isInteger(pid) && pid > 0 && pidAlive(pid)) return;
+  } catch { /* no pid file -> treat as dead */ }
+  try {
+    if (Date.now() - fs.statSync(LIVE_STAMP_FILE).mtimeMs < THROTTLE_MS) return;
+  } catch { /* no stamp yet */ }
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(LIVE_STAMP_FILE, new Date().toISOString(), 'utf8');
+    const r = spawnSync(process.execPath, [LIVE_CTL, 'ensure'], {
+      encoding: 'utf8', timeout: 8000, windowsHide: true,
+    });
+    try {
+      fs.appendFileSync(
+        path.join(DATA_DIR, 'hook.log'),
+        `[${new Date().toISOString()}] UserPromptSubmit reviveLive status=${r.status} ${String(r.stdout || '').replace(/\s+/g, ' ').slice(0, 120)}\n`,
+        'utf8',
+      );
+    } catch { /* diagnostics never break the hook */ }
+  } catch { /* best effort */ }
+}
+
+reviveLive();
 
 // Fast path: a worker already holds the lock -> nothing to do, stay silent.
 try {

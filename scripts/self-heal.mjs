@@ -54,7 +54,7 @@ import { fileURLToPath } from 'node:url';
 const SELF = fileURLToPath(import.meta.url);
 const PLUGIN_ROOT = path.resolve(path.dirname(SELF), '..');
 const PATCHER = path.join(PLUGIN_ROOT, 'bin', 'zcode-zh.mjs');
-const CURRENT_MARKER = '__zcodeZhTitle3';
+const CURRENT_MARKER = '__zcodeZhTitle5';
 
 const LOCAL = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
 const DATA_DIR = process.env.ZCB_DATA_DIR || path.join(LOCAL, 'zcode-bilingual');

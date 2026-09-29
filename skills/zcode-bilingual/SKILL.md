@@ -150,14 +150,68 @@ dictionary.json（73 条）打补丁，主仓库后来补的 30 条（钩子事�
 `window.__zcodeZhDict=Object.assign(window.__zcodeZhDict||{},` 之后的 JSON 数一数条数；
 主仓库与 dist 两份 dictionary.json 必须同步。
 
+## 实时悬浮翻译（v0.5.0 新增，核心方向变更）
+
+v0.5.0 起，插件从「词典精确匹配」升级为「通用悬浮翻译软件」：**任何新增的英文（新装插件、
+新市场卡片、新 UI 面）悬浮即出翻译**，不再要求「先补词典、再重打补丁」。
+
+组成（可选层，fail-silent——server 不在/被禁时行为与 v0.4.x 完全一致）：
+
+| 组件 | 作用 |
+|---|---|
+| `scripts/dict-server.mjs` | 回环服务（127.0.0.1:17981-17985）。`/dict` 热词典（base ∪ learned）、`/translate?q=` 按需翻译、`/ping` 握手（含当前 `model`） |
+| `scripts/live-ctl.mjs` | hooks 的 ensure/status/stop 入口（探针 + detached 拉起）；`status` 实时显示当前翻译模型 |
+| helper 实时层（marker `__zcodeZhTitle5`） | 每 5 分钟拉 `/dict` 合并；未命中文本渲染时标记 `__zzhMiss`，**悬停才发翻译请求**；指针仍在时弹小气泡（`pointer-events:none` 不挡点击，6s 自隐）；**Ctrl+Alt+M 呼出翻译模型自选面板** |
+
+关键行为：
+
+- **热词典**：`/dict` = `buildDictionary()`（dictionary.json + 全部已装插件的
+  description_i18n，实测 1682 条）∪ `learned.json`。新装插件**几分钟内免重打可译**。
+- **按需翻译**：方向自动（纯英文→中文、纯中文→英文），结果永久缓存进
+  `%LOCALAPPDATA%\zcode-bilingual\learned.json`（LRU 5000）；限速 30/min。
+  后端自动探测本机 wb2api 网关（`~/.dsh/wb2api/config.json`），可用
+  `%LOCALAPPDATA%\zcode-bilingual\live-config.json` 覆盖：`{"disabled":true}` 停用、
+  `{"backend":{baseURL,apiKey,model}}` 换后端、`{"translateDisabled":true}` 只用词典
+  不调 LLM。渲染层另有 `window.__zcodeZhLive=false` 全局开关。
+- **模型可自选（v0.5.1 手动文件 / v0.5.2 窗口面板，不写死）**：翻译模型按优先级解析——
+  `live-config.json` 的 `backend.model`（自定义后端）> 顶层 `"model"` >
+  wb2api config 自带的 `model`/`defaultModel` > 内置兜底 `deepseek-v4.1-flash`；
+  所选来源记在 `modelSource`（/ping 与 status 都能看到）。
+  **窗口内自选（推荐）**：会话窗口按 **Ctrl+Alt+M** 呼出深色模型面板（helper 绘制，
+  样式对齐应用自带下拉）：列表=`GET /models`（当前 + 网关 /v1/models 探测（10min 缓存，
+  空列表则跳过）+ `modelHistory` 常用 + 内置候选），支持自由输入模型 ID、
+  「恢复默认（不指定）」；点选即 `POST /model`，**由 server 写 live-config.json**
+  （顶层 `model` 或自定义后端的 `backend.model`，同优先级语义），渲染层不碰文件。
+  每次选择进 `modelHistory`（去重、上限 12）。
+  **手动改文件同样有效**：`/translate` 每请求重读配置、`/ping` 实时解析，保存即生效
+  无需重启；删掉该键恢复「不指定」。
+- **清单收割**：server 启动+每 10 分钟扫描插件 cache/marketplaces/`plugins.dirs`/
+  `~/.zcode/agents` 的 UI 字符串（v0.5.0 实测 1953 条），**仅在用户没有悬停操作时**
+  每 30s 批量译 12 条进 learned → 新插件文案几分钟内进热词典（约 1 小时全覆盖）。
+  作者名/argument-hint/已含中文的串按既有约定跳过（`filterTranslatable`）。
+- **learned 回灌**：`buildDictionary()` 会合入 learned.json → 每次重打把已学词条烤进
+  asar，离线/无 server 也保留。learned 与 dictionary.json 同键时**用户词典优先**。
+- **生命周期**（对齐 wb2api 政策）：ZCode 关闭 3 分钟/空闲 2h/满 24h 自动退出；
+  SessionStart 用 `live-ctl.mjs ensure` 拉起，UserPromptSubmit 只做 pid 轻量复活。
+- **热注入**：`node scripts/hot-inject.mjs` 经 CDP 把当前 helper 注入**运行中**的
+  渲染层（临时桥接，重打后以烤进 asar 的为准）——改 helper 后不用等重启就能验证。
+- **状态**：`node bin/zcode-zh.mjs status` 新增 `live` 字段（服务端口/learned 数/uptime）。
+
+**验证**：`tests/_helper_live_test.mjs`（mock fetch，19 项：热合并/悬停翻译/缓存/气泡/
+kill 开关/contenteditable 约束）+ `tests/_server_scan_test.mjs`（收割规则/方向/批译，
+15 项）。实机链路：`/translate` 双向 → learned 落盘 → `/dict` 合流 → CDP 热注入后
+未知英文悬浮出中文。
+
 ## 覆盖范围
 
 - 覆盖：所有走 `formatMessage` 的界面文案，包括设置页（常规/外观/模型/记忆/子智能体/
   插件/MCP/技能/命令/自动化/Hooks…）、`/` 命令面板、弹窗、按钮、提示、空状态等。
   中英来自同一份 key，天然一一对应；按当前语言显示原文，译文只在悬停时出现，不占布局。
 - 动态文字：插件/技能/子智能体/MCP 的名称与描述、插件命令描述，由 `dictionary.json`
-  与各插件自带的 `description_i18n` 覆盖；词典未收录且清单无中文的第三方文本无法离线翻译。
-- 不覆盖：终端 TUI（若使用 ZCode CLI）以及用户自己输入的内容。
+  与各插件自带的 `description_i18n` 覆盖；**v0.5.0 起词典未收录的文案由实时层现场翻译**，
+  server 关闭时才回退为「无法离线翻译」。
+- 不覆盖：终端 TUI（若使用 ZCode CLI）。用户自己输入的内容 v0.5.0 起悬停也会出翻译
+  （划词翻译行为），`window.__zcodeZhLive=false` 可关。
 
 ## 安全性
 

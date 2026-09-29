@@ -6,11 +6,14 @@
 - 中文界面（ZCode 默认）→ 界面**保持中文不变**，悬停显示**英文**。
 - 插件 / 命令 / 技能自带的双语描述（`English / 中文`）→ 悬停浮出**中文半段**（v0.4.7——即使中文已完整显示：行内中文是浅灰色，看不清）；
 - 被 CSS 截断的长描述 → 悬停显示**全文**（v0.4.6）。
+- **任何词典没有的新英文 → 悬停即出现场翻译**（v0.5.0 实时层：本地服务 + LLM 后端，
+  结果永久缓存；新装插件的文案几分钟内免重打直接可译）。详见下文「实时悬浮翻译」。
 
 **原有文字一个字符都不改、排版完全不变**（不换行、不改宽度、不遮挡原有内容）。
 
 > Hover ZCode UI text to see a translation tooltip: English UI → Chinese, Chinese UI → English.
-> The original text and the layout are left completely untouched.
+> The original text and the layout are left completely untouched. Brand-new English text
+> (freshly installed plugins, new UI surfaces) is translated on hover on demand since v0.5.0.
 
 ---
 
@@ -165,6 +168,48 @@ ZCode。若想立刻安排（ZCode 运行中也可以）：双击 **`repair.cmd`
 > 注意：`app.asar` 在 ZCode 运行期间被占用，**apply / restore 必须在 ZCode 完全退出后执行**。
 > 这是唯一的手动步骤。
 > v0.4.1 起 `dictStale` 也会触发自愈，所以「改完词典」同样只需要**退出一次 ZCode**。
+
+---
+
+## 实时悬浮翻译与翻译模型自选（v0.5.0–v0.5.2）
+
+补丁烤进 asar 的词典是**精确匹配**的静态快照。实时层把它升级成真正的悬浮翻译软件：
+本地回环服务 + LLM 后端，任何词典没有的新英文（新装插件、新市场卡片、新 UI 面）
+**悬停即出现场翻译**，并把每个结果永久缓存。
+
+| 组件 | 作用 |
+|---|---|
+| `scripts/dict-server.mjs` | 回环服务（`127.0.0.1:17981-17985`，仅本机）：`/dict` 热词典、`/translate` 按需翻译、`/models`+`/model` 模型目录与切换、`/ping` 握手 |
+| `scripts/live-ctl.mjs` | hooks 的 ensure/status/stop 入口；`status` 实时显示当前翻译模型 |
+| helper 实时层 | 每 5 分钟拉热词典合并；未命中的文本渲染时打标，**悬停才发翻译请求**；指针仍在时弹小气泡（不挡点击） |
+
+- **缓存与回灌**：每个翻译结果永久写入 `%LOCALAPPDATA%\zcode-bilingual\learned.json`
+  （LRU 5000），并在下次重打时烤进 asar——离线/无服务也保留。
+- **后台收割**：服务在空闲时把已装插件清单里的未知文案小批量预热进缓存，
+  新装插件几分钟内免重打直接可译。
+- **生命周期**：ZCode 关闭 3 分钟 / 空闲 2 小时 / 满 24 小时自动退出，钩子自动复活；
+  完全 fail-silent——服务不在时行为与纯词典版一致。
+- **开关**：`window.__zcodeZhLive=false` 关页面侧；`live-config.json` 的
+  `{"translateDisabled":true}` 只用词典不调 LLM、`{"disabled":true}` 整体停用。
+
+### 翻译模型自选（不写死）
+
+模型解析优先级：`live-config.json` 的 `backend.model`（自定义后端）> 顶层 `"model"` >
+wb2api 网关自带字段 > 内置兜底 `deepseek-v4.1-flash`。`/translate` 每请求重读配置，
+**改完即生效，无需重启**；当前用什么、从哪层来的，`status` 与 `/ping` 的
+`model` / `modelSource` 一眼可查。
+
+- **会话窗口内按 `Ctrl+Alt+M`**：呼出深色模型面板——列表 = 当前 → 常用（选择历史）→
+  网关目录 → 内置候选；支持直接输入任意模型 ID；「恢复默认（不指定）」一键还原。
+  点选由服务端写入配置，渲染层不碰文件。
+- **或手动编辑** `%LOCALAPPDATA%\zcode-bilingual\live-config.json` 写入 `"model": "<id>"`。
+
+### 安全边界（v0.5.2 起）
+
+服务只绑 `127.0.0.1`，并校验 Origin/Host：无 Origin（本机脚本/钩子）、`null`
+（file:// 渲染层）、`file://`/`app://` 放行；任何 http(s) 来源与反弹 Host 一律 403——
+本机浏览器里的网页**无法**借它烧翻译配额或改配置。翻译请求走本机 wb2api 网关的
+OpenAI 兼容接口，凭据只在服务端内存中使用，不写日志、不入库、不随包分发。
 
 ---
 
