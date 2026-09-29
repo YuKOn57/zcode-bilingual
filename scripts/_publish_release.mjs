@@ -17,7 +17,11 @@ if (!relRes.ok) { console.error('release fetch failed:', relRes.status); process
 console.log('release:', rel.id, rel.html_url);
 
 const existing = (rel.assets || []).find((a) => a.name === 'zcode-bilingual-setup-v0.5.2.zip');
-if (existing) { console.log('asset already present:', existing.name, existing.state); process.exit(0); }
+if (existing) {
+  if (process.argv[2] !== '--replace') { console.log('asset already present:', existing.name, existing.state); process.exit(0); }
+  const del = await fetch(`https://api.github.com/repos/${REPO}/releases/assets/${existing.id}`, { method: 'DELETE', headers: auth });
+  console.log('old asset deleted:', del.status === 204 ? 'ok' : del.status);
+}
 
 const buf = fs.readFileSync(ZIP);
 const up = await fetch(`https://uploads.github.com/repos/${REPO}/releases/${rel.id}/assets?name=zcode-bilingual-setup-v0.5.2.zip`, {
