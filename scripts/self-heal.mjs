@@ -16,9 +16,12 @@
  *   2. The worker waits until no ZCode process is running and app.asar has
  *      stopped changing (so we never collide with a half-finished update).
  *   3. It runs the patcher (`bin/zcode-zh.mjs apply`), records the outcome in
- *      `self-heal-result.json`, consumes the request, and — when ZCode had to be
- *      closed for this — relaunches ZCode so the user comes back to a translated
- *      UI. A logon-time watchdog never relaunches on its own.
+ *      `self-heal-result.json`, consumes the request, and — only when the app
+ *      archive was swapped by an outside updater (a real update) or the user
+ *      explicitly ran a repair — relaunches ZCode so the user comes back to a
+ *      translated UI. A logon-time watchdog never relaunches on its own, and a
+ *      plain exit (user closed the app, dictionary went stale) never relaunches:
+ *      the fresh patch simply applies to the next launch.
  *
  * Subcommands
  * -----------
@@ -470,6 +473,16 @@ function cmdRun(opts) {
     }
     const asar = st.asar;
 
+    // Size of the archive while ZCode is still up. If it is still the same
+    // after ZCode exits, no updater swapped the app in — a stale patch alone
+    // must NOT relaunch, or closing ZCode while e.g. the dictionary pipeline
+    // is running would yank the app right back open (2026-10-01 report).
+    let runningSize = 0;
+    if (sawRunning) {
+      const s = asarSig(asar);
+      if (s) runningSize = Number(s.split(':')[0]) || 0;
+    }
+
     // Wait until ZCode is fully closed AND app.asar stopped changing (an update
     // installer may still be replacing files right after the app exits).
     const deadline = Date.now() + DEADLINE_MS;
@@ -538,11 +551,21 @@ function cmdRun(opts) {
       });
       removeFile(REQUEST_FILE);
       const cfg = readJson(CONFIG_FILE) || {};
+      // Relaunch only when the user explicitly asked for a repair, or when an
+      // outside updater really swapped the archive while we waited. A stale
+      // dictionary/marker on an unchanged archive means "patch it for next
+      // launch", never "reopen the app the user just closed".
+      const explicit = reason === 'manual' || reason === 'repair';
+      let swapped = false;
+      if (!explicit && runningSize > 0) {
+        const sAfter = asarSig(asar);
+        swapped = !!sAfter && (Number(sAfter.split(':')[0]) || 0) !== runningSize;
+      }
       const wantRelaunch =
         !opts.noRelaunch &&
         !process.env.ZCB_NO_RELAUNCH &&
         cfg.relaunch !== false &&
-        (sawRunning || reason !== 'watchdog');
+        (explicit || (sawRunning && swapped));
       const exe = exeFromAsar(asar);
       if (wantRelaunch && fs.existsSync(exe)) {
         logLine(`relaunching ${exe}`);
@@ -552,7 +575,7 @@ function cmdRun(opts) {
           logLine(`relaunch failed: ${(e && e.message) || e}`);
         }
       } else {
-        logLine(`no relaunch (wantRelaunch=${wantRelaunch}, exe=${exe}, exists=${fs.existsSync(exe)})`);
+        logLine(`no relaunch (wantRelaunch=${wantRelaunch}, reason=${reason}, swapped=${swapped}, exe=${exe}, exists=${fs.existsSync(exe)})`);
       }
       return 0;
     }
@@ -606,6 +629,13 @@ function cmdSentinel() {
   let failSig = '';
   let failCount = 0;
   let lastOkLog = 0;
+  // Relaunch policy (2026-10-01): a real updater swap is the only non-explicit
+  // reason to reopen the app. Track the archive size while ZCode runs, and the
+  // signature we ourselves produced, so a stale dictionary — which used to
+  // relaunch ZCode every time the user closed it while the dictionary pipeline
+  // was writing — only re-patches and waits for the next launch.
+  let runningSize = 0;
+  let lastAppliedSig = '';
   try {
     while (Date.now() < deadline) {
       const req = readJson(REQUEST_FILE);
@@ -616,6 +646,9 @@ function cmdSentinel() {
 
       if (isTargetRunning()) {
         sawRunning = true;
+        const asarUp = resolveAsarForWatchdog();
+        const s = asarUp && asarSig(asarUp);
+        if (s) runningSize = Number(s.split(':')[0]) || 0;
         absentSince = 0;
         stable = 0;
         lastSig = '';
@@ -686,6 +719,14 @@ function cmdSentinel() {
         `sentinel: patch ${st.patched ? 'stale' : 'missing'} after an archive change` +
           `${st.dictStale ? ' (dictionary out of date)' : ''}; applying --force`,
       );
+      // An outside updater swapped the app in only if the archive is now a
+      // different size than while ZCode ran, and it is not a size we produced
+      // ourselves with a previous apply.
+      const wasSwapped =
+        runningSize > 0 &&
+        sig &&
+        (Number(sig.split(':')[0]) || 0) !== runningSize &&
+        sig !== lastAppliedSig;
       const args = [PATCHER, 'apply', '--force'];
       args.push('--asar', asar);
       const r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 600000, windowsHide: true });
@@ -696,6 +737,8 @@ function cmdSentinel() {
       if (r.status === 0) {
         failSig = '';
         failCount = 0;
+        const sigApplied = asarSig(asar);
+        if (sigApplied) lastAppliedSig = sigApplied;
         const st2 = patcherStatus(asar) || {};
         writeJson(RESULT_FILE, {
           ok: true,
@@ -707,17 +750,17 @@ function cmdSentinel() {
         });
         const cfg = readJson(CONFIG_FILE) || {};
         const wantRelaunch =
-          !process.env.ZCB_NO_RELAUNCH && cfg.relaunch !== false && sawRunning;
+          !process.env.ZCB_NO_RELAUNCH && cfg.relaunch !== false && sawRunning && wasSwapped;
         const exe = exeFromAsar(asar);
         if (wantRelaunch && fs.existsSync(exe)) {
-          logLine(`sentinel: relaunching ${exe}`);
+          logLine(`sentinel: relaunching ${exe} (archive swapped by an updater)`);
           try {
             spawn(exe, [], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
           } catch (e) {
             logLine(`sentinel: relaunch failed: ${(e && e.message) || e}`);
           }
         } else {
-          logLine(`sentinel: no relaunch (wantRelaunch=${wantRelaunch}, exists=${fs.existsSync(exe)})`);
+          logLine(`sentinel: no relaunch (wantRelaunch=${wantRelaunch}, swapped=${wasSwapped}, exists=${fs.existsSync(exe)})`);
         }
         // Stay armed: the next update must be caught just as promptly.
         absentSince = Date.now();

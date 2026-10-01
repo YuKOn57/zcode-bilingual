@@ -1,6 +1,6 @@
 {
   "name": "zcode-bilingual",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Hover ZCode UI text to see a translation tooltip: English UI shows Chinese, Chinese UI shows English. The original text and the layout are never modified. v0.5.0 adds a live layer: a local service delivers a hot dictionary (new plugins translate within minutes, no re-patch) and translates unknown text on hover via a configurable LLM backend, caching every answer forever.",
   "description_i18n": {
     "en": "Hover ZCode UI text to see a translation tooltip: English UI shows Chinese, Chinese UI shows English. The original text and the layout are never modified. Catalog-driven surfaces are covered automatically; plugin/skill/subagent/MCP metadata is covered by an extensible dictionary.json.",

@@ -1,5 +1,20 @@
 # 更新日志 / Changelog
 
+## v0.5.3 — 2026-10-01（修复：自愈哨兵不再把手动关闭的 ZCode 拉起来）
+
+- **修复「手动关闭 ZCode 后它自动重新打开」**：自愈哨兵的 relaunch 条件过去只有
+  「哨兵存活期间见过 ZCode 在运行」——用户手动关闭 ZCode 时，只要补丁恰好需要重打
+  （词典刷新、marker 升级），哨兵重打完就把 ZCode 重新打开。最坏一天 4 次：词典
+  扩充流水线持续回写 dictionary.json，每次关闭应用都触发一次重打+重开。
+- **新 relaunch 政策**：只有两种情况自动打开 ZCode——
+  1. 更新器**真换包**（退出后 app.asar 字节数变化，且不是哨兵自己上一轮 apply 的产物）；
+  2. 用户**显式修复**（repair.cmd / 手动 schedule，reason=manual|repair）。
+  词典刷新/补丁过期只重打，等待下次启动自然生效，绝不拉起应用。
+- 一次性自愈 worker（`run`）同样收紧；`ZCB_NO_RELAUNCH=1` 或
+  `self-heal-config.json` 的 `{"relaunch": false}` 仍可彻底禁用自动打开。
+- 发布脚本 `_publish_release.mjs` 泛化：版本/tag/zip 名从 `.zcode-plugin/plugin.json`
+  推导，release 不存在时自动创建，后续发版无需再改脚本常量。
+
 ## v0.5.2 — 2026-09-29（翻译模型可自选：Ctrl+Alt+M 窗口面板 + 发布前安全/稳定性加固）
 
 - **翻译模型不写死**：解析优先级 `live-config.json` 的 `backend.model` > 顶层 `"model"` >
